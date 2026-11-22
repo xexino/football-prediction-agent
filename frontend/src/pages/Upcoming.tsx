@@ -54,6 +54,7 @@ function Detail({ f }: { f: any }) {
           <span>{f.home} at home</span><span><Form s={inp.form?.home_at_home?.string} /> <span className="muted mono">CS {inp.form?.home_at_home?.clean_sheets ?? "—"} FTS {inp.form?.home_at_home?.failed_to_score ?? "—"}</span></span>
           <span>{f.away} last 10</span><span><Form s={inp.form?.away?.string} /> <span className="muted mono">GF {inp.form?.away?.gf_avg ?? "—"} GA {inp.form?.away?.ga_avg ?? "—"}</span></span>
           <span>{f.away} away</span><span><Form s={inp.form?.away_away?.string} /> <span className="muted mono">CS {inp.form?.away_away?.clean_sheets ?? "—"} FTS {inp.form?.away_away?.failed_to_score ?? "—"}</span></span>
+          <span>League table</span><span className="mono">{f.table?.home || f.table?.away ? `${f.home} ${f.table?.home ? `#${f.table.home.position} (${f.table.home.points} pts)` : "—"} · ${f.away} ${f.table?.away ? `#${f.table.away.position} (${f.table.away.points} pts)` : "—"} — football-data.org ${f.table?.home?.as_of || f.table?.away?.as_of || ""}` : "not available for this competition"}</span>
           <span>Sample (in competition)</span><span className="mono">{inp.n_matches?.home ?? "—"} / {inp.n_matches?.away ?? "—"} matches</span>
           <span>Team news</span><span className="warn">{f.team_news.length ? f.team_news.map((n: any) => `${n.team}: ${n.player} ${n.type} (${n.certainty})`).join("; ") : f.team_news_status}</span>
         </div>

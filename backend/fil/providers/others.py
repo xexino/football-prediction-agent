@@ -111,59 +111,6 @@ class InternationalResults(Provider):
         return out
 
 
-FDORG_STATUS = {"SCHEDULED": "scheduled", "TIMED": "scheduled", "IN_PLAY": "live", "PAUSED": "live",
-                "FINISHED": "finished", "AWARDED": "finished", "POSTPONED": "postponed", "SUSPENDED": "postponed",
-                "CANCELLED": "cancelled"}
-
-
-class FootballDataOrg(Provider):
-    key = "football_data_org"
-    name = "football-data.org"
-    kind = "fixtures, results (12 competitions on free tier)"
-    base_url = "https://api.football-data.org/v4"
-    license_note = "Free tier with API key: 12 competitions, 10 requests/minute. Requires FOOTBALL_DATA_ORG_KEY."
-    requires_key = True
-    reliability = "high"
-    min_interval_s = 6.5
-    cache_ttl_s = 1800
-
-    @property
-    def configured(self) -> bool:
-        return bool(settings.football_data_org_key)
-
-    def headers(self) -> dict:
-        return {**super().headers(), "X-Auth-Token": settings.football_data_org_key}
-
-    def matches(self, days_back: int = 3, days_forward: int = 7) -> list[MatchRecord]:
-        if not self.configured:
-            raise NotConfigured("FOOTBALL_DATA_ORG_KEY not set")
-        code_map = {c["sources"]["fdorg"]: c["code"] for c in COMPETITIONS if "fdorg" in c["sources"]}
-        today = utcnow().date()
-        res = self.get(f"{self.base_url}/matches", params={
-            "dateFrom": str(today - timedelta(days=days_back)), "dateTo": str(today + timedelta(days=days_forward))})
-        out = []
-        for m in json.loads(res.text).get("matches", []):
-            comp = code_map.get((m.get("competition") or {}).get("code"))
-            if not comp:
-                continue
-            ft = (m.get("score") or {}).get("fullTime") or {}
-            ht = (m.get("score") or {}).get("halfTime") or {}
-            status = FDORG_STATUS.get(m.get("status"), "unknown")
-            out.append(MatchRecord(
-                comp_code=comp, season=str(((m.get("season") or {}).get("startDate") or "")[:4]),
-                home=(m["homeTeam"].get("shortName") or m["homeTeam"]["name"]),
-                away=(m["awayTeam"].get("shortName") or m["awayTeam"]["name"]),
-                kickoff_utc=to_utc_naive(datetime.fromisoformat(m["utcDate"].replace("Z", "+00:00"))),
-                country=BY_CODE[comp]["country"], status=status,
-                home_goals=ft.get("home") if status == "finished" else None,
-                away_goals=ft.get("away") if status == "finished" else None,
-                ht_home=ht.get("home"), ht_away=ht.get("away"),
-                source_url=res.url, retrieved_at=res.retrieved_at, external_id=str(m.get("id")),
-            ))
-        self.last_quota = {"requests_available_minute": res.headers.get("x-requests-available-minute")}
-        return out
-
-
 ODDS_API_SPORTS = {
     "UCL": "soccer_uefa_champs_league", "UEL": "soccer_uefa_europa_league", "UECL": "soccer_uefa_europa_conference_league",
     "ENG1": "soccer_epl", "ENG2": "soccer_efl_champ", "ITA1": "soccer_italy_serie_a", "ESP1": "soccer_spain_la_liga",

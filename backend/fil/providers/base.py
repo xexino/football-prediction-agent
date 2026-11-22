@@ -70,9 +70,15 @@ class Provider:
                 s.add(ds)
             ds.name, ds.kind, ds.base_url = self.name, self.kind, self.base_url
             ds.license_note, ds.requires_key, ds.reliability = self.license_note, self.requires_key, self.reliability
-            ds.configured = self.configured
-            if not self.configured:
-                ds.status = "not_configured"
+            if self.configured:
+                ds.configured = True
+            else:
+                # processes without the secret (dashboard export, local tools) must not mark a provider that
+                # synced successfully in the last 3 days as unconfigured
+                recent = ds.last_success_at is not None and utcnow() - ds.last_success_at < timedelta(days=3)
+                ds.configured = bool(recent and ds.configured)
+                if not ds.configured:
+                    ds.status = "not_configured"
 
     def _mark(self, ok: bool, error: str | None = None, quota: dict | None = None, records: int = 0, requests: int = 0):
         with session_scope() as s:
@@ -91,7 +97,9 @@ class Provider:
                 ds.status, ds.last_success_at = "ok", now
                 circ = {"failures": 0, "open_until": None}
             else:
-                ds.status, ds.last_error_at, ds.last_error = "error", now, (error or "")[:1000]
+                from ..security import redact
+
+                ds.status, ds.last_error_at, ds.last_error = "error", now, redact(error or "")[:1000]
                 circ["failures"] = circ.get("failures", 0) + 1
                 if circ["failures"] >= CIRCUIT_THRESHOLD:
                     circ["open_until"] = (now + timedelta(hours=CIRCUIT_COOLDOWN_H)).isoformat()

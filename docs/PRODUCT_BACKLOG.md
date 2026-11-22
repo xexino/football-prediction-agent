@@ -33,7 +33,9 @@ verification column was actually performed. Updated 2026-11-22.
 | I-6 | Re-evaluate 1X2 value betting at ≥100 backtest bets | Weakest segment | — | TODO | decision documented with CI | — |
 | I-2 | Simple-Poisson baseline in backtest | Prompted baseline set | — | TODO | metric row added | — |
 | F-2 | Closing-line value report on live bets | Edge evidence | first bets | PARTIAL | CLV per bet stored; aggregate shown | needs settled bets |
-| B-3 | football-data.org / Odds API activation | More books & UEFA | API keys | BLOCKED | keys in secrets → provider HEALTHY | — |
+| B-3a | football-data.org integration (fixtures, results, standings, CL history) | UEFA + cross-checks | key | DONE (code) | verified with real token; live sync in Actions once secret set | real API probe + 91 tests |
+| B-3b | The Odds API activation | More bookmakers | key | BLOCKED | key in secrets → provider HEALTHY | — |
+| B-4 | Champions League predictions (cup model: DC across leagues or Elo-only) | CL fixtures/results now available | B-3a | TODO | walk-forward validated before enabling | — |
 | I-7 | Model registry: feature list + training-data hash per version | Traceability | J-5 | TODO | registry row has features + data cutoff | — |
 
 ## P2 — Coverage & football intelligence

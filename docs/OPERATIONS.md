@@ -76,3 +76,19 @@ manifest is a deliberate override of the shrink guard, so only do it on purpose.
 * Runs are capped at 60 minutes (a typical run takes 2–8 minutes).
 * Pages serves a static snapshot only, with no live API.
 * The provider cache persists between runs through `actions/cache`.
+
+## Secrets
+| Secret | Where it is set | Used by |
+|---|---|---|
+| `FOOTBALL_DATA_ORG_KEY` | GitHub → Settings → Secrets and variables → Actions | the **Run** step of `autopilot.yml` only |
+| `ODDS_API_KEY`, `API_FOOTBALL_KEY` | same | same |
+
+* Secrets are passed **only to the step that runs the jobs**. The frontend build, the database persist, the dashboard
+  export and the run summary never receive them. The CI workflow uses no secrets.
+* In code, keys come only from environment variables (`fil/config.py`) and are sent only as HTTP headers.
+* `fil/security.py` redacts secret values and auth headers from every log record (all loggers), from the
+  `system_logs` table, from job errors and summaries, and from provider error messages.
+* Tests (`tests/test_fdorg.py`) prove that no secret reaches logs, the database, the dashboard export, backups or the
+  frontend source.
+* The Run step prints only `football-data.org key: configured`, or a warning when it is missing.
+* Local use: put the key in `.env`, which git ignores, or export it in your shell.

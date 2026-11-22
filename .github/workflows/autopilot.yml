@@ -30,12 +30,11 @@ jobs:
   run:
     runs-on: ubuntu-latest
     timeout-minutes: 60
+    # Provider API keys are NOT set at job level: they are passed only to the "Run" step below, so they never
+    # reach the frontend build, the dashboard export, the database persist step or the run summary.
     env:
       FIL_DB_PATH: data/fil.db
       FIL_SCHEDULER: "0"
-      FOOTBALL_DATA_ORG_KEY: ${{ secrets.FOOTBALL_DATA_ORG_KEY }}
-      ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
-      API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
       GH_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
@@ -85,7 +84,12 @@ jobs:
           echo "job=$JOB" >> "$GITHUB_OUTPUT"
       - name: Run
         id: runjob
+        env:
+          FOOTBALL_DATA_ORG_KEY: ${{ secrets.FOOTBALL_DATA_ORG_KEY }}
+          ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+          API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
         run: |
+          if [ -n "$FOOTBALL_DATA_ORG_KEY" ]; then echo "football-data.org key: configured"; else echo "::warning::FOOTBALL_DATA_ORG_KEY secret is not set — football-data.org sync will be skipped"; fi
           cd backend
           rc=0
           for j in $(echo "${{ steps.pick.outputs.job }}" | tr ',' ' '); do

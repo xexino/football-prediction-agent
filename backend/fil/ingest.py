@@ -10,7 +10,7 @@ import json
 from collections import defaultdict
 from datetime import timedelta
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.orm import Session
 
@@ -46,7 +46,7 @@ def validate(rec: MatchRecord) -> str | None:
         return "missing or identical team names"
     if rec.kickoff_utc.year < 1990 or rec.kickoff_utc > now + timedelta(days=400):
         return "implausible kickoff date"
-    if rec.status == "finished":
+    if rec.status in ("finished", "finished_aet"):
         for g in (rec.home_goals, rec.away_goals):
             if g is None or g < 0 or g > 20:
                 return f"invalid final score {rec.home_goals}-{rec.away_goals}"
@@ -58,12 +58,32 @@ def validate(rec: MatchRecord) -> str | None:
 
 
 class Ingestor:
+    def _update_known(self, fx: "Fixture", rec: MatchRecord) -> "Fixture":
+        """Fixture already linked by provider id: refresh kickoff (if not primary-owned) and record results."""
+        self.stats["fixtures_dup"] += 1
+        if fx.status in ("scheduled", "postponed") and fx.first_seen_source == self.source and rec.kickoff_utc != fx.kickoff_utc:
+            fx.kickoff_utc = rec.kickoff_utc
+            self.stats["kickoff_changes"] += 1
+        self._record_status(fx, rec)
+        return fx
+
     def __init__(self, s: Session, source: str):
         self.s, self.source = s, source
         self.resolver = TeamResolver(s)
         self.comp_ids = {c.code: c.id for c in s.scalars(select(Competition))}
         self._fx_index: dict[int, dict] = {}
         self.stats = defaultdict(int)
+
+    def _record_status(self, fx: "Fixture", rec: MatchRecord) -> None:
+        if rec.status in ("finished", "finished_aet", "postponed", "cancelled", "abandoned"):
+            obs = dict(fixture_id=fx.id, source=self.source, status=rec.status, home_goals=rec.home_goals,
+                       away_goals=rec.away_goals, ht_home_goals=rec.ht_home, ht_away_goals=rec.ht_away,
+                       retrieved_at=rec.retrieved_at or utcnow())
+            r = self.s.execute(sqlite_insert(ResultObservation).values(**obs).on_conflict_do_nothing())
+            if r.rowcount:
+                self.stats["result_observations"] += 1
+                reconcile(self.s, fx)
+            fx.updated_at = utcnow()
 
     def _index(self, comp_id: int) -> dict:
         if comp_id not in self._fx_index:
@@ -95,8 +115,20 @@ class Ingestor:
             h, hc = self.resolver.resolve(rec.home, self.source, rec.country, cands, is_national=national)
             a, ac = self.resolver.resolve(rec.away, self.source, rec.country, cands, is_national=national)
         else:
+            # 1) stable provider id seen before -> same fixture, no name matching needed
+            if rec.external_id:
+                known_fx = self.s.scalars(select(Fixture).where(
+                    Fixture.competition_id == comp_id,
+                    func.json_extract(Fixture.external_ids, f"$.{self.source}") == rec.external_id)).first()
+                if known_fx is not None:
+                    return self._update_known(known_fx, rec)
             h, hc = self.resolver.resolve(rec.home, self.source, rec.country, cands, create=False)
             a, ac = self.resolver.resolve(rec.away, self.source, rec.country, cands, create=False)
+            for alt in rec.aliases or ():  # alternative names (full name / short name)
+                if h is None and alt and alt[0] == "home":
+                    h, hc = self.resolver.resolve(alt[1], self.source, rec.country, cands, create=False)
+                if a is None and alt and alt[0] == "away":
+                    a, ac = self.resolver.resolve(alt[1], self.source, rec.country, cands, create=False)
             # anchor matching: one team + kickoff identifies the fixture, so the other name is an alias
             if (h is None) != (a is None):
                 known = h if h is not None else a
@@ -113,6 +145,12 @@ class Ingestor:
                         h, hc = other, 0.85
                     else:
                         a, ac = other, 0.85
+            primary_owned = any(k in BY_CODE[rec.comp_code]["sources"] for k in ("fd_uk", "fd_uk_new", "intl"))
+            if (h is None or a is None) and cands and primary_owned:
+                # a competition already maintained by the primary source: a secondary source must not
+                # invent new teams/fixtures it cannot match (prevents duplicates from naming differences)
+                self.stats["unresolved_teams"] += 1
+                return None
             if h is None:
                 h, hc = self.resolver.resolve(rec.home, self.source, rec.country, cands, is_national=national)
             if a is None:
@@ -150,15 +188,7 @@ class Ingestor:
             self.stats["fuzzy_team_matches"] += 1
 
         # -------------------------------------------------- results / status
-        if rec.status in ("finished", "postponed", "cancelled", "abandoned"):
-            obs = dict(fixture_id=fx.id, source=self.source, status=rec.status, home_goals=rec.home_goals,
-                       away_goals=rec.away_goals, ht_home_goals=rec.ht_home, ht_away_goals=rec.ht_away,
-                       retrieved_at=rec.retrieved_at or now)
-            r = self.s.execute(sqlite_insert(ResultObservation).values(**obs).on_conflict_do_nothing())
-            if r.rowcount:
-                self.stats["result_observations"] += 1
-                reconcile(self.s, fx)
-            fx.updated_at = now
+        self._record_status(fx, rec)
 
         # -------------------------------------------------- stats
         if rec.stats:
@@ -186,6 +216,10 @@ class Ingestor:
         return fx
 
 
+def _noop():
+    return None
+
+
 def reconcile(s: Session, fx: Fixture) -> None:
     """Derive a fixture's verified status/result from all source observations.
 
@@ -197,7 +231,17 @@ def reconcile(s: Session, fx: Fixture) -> None:
                     .order_by(ResultObservation.retrieved_at)).all()
     latest = {}
     for o in obs:
-        latest[o.source] = o
+        if o.status == "finished_aet" or latest.get(o.source) is None or latest[o.source].status != "finished_aet":
+            latest[o.source] = o
+    aet = [o for o in latest.values() if o.status == "finished_aet" and o.home_goals is not None]
+    if aet:
+        # extra time was played: settlement uses the 90-minute score reported by the source that knows it;
+        # other sources' figures may include extra time and are not a conflict
+        o = aet[0]
+        fx.status, fx.home_goals, fx.away_goals = "finished", o.home_goals, o.away_goals
+        fx.result_source = f"{o.source} (90-minute score; extra time played)"
+        fx.result_verified_at, fx.result_conflict = utcnow(), False
+        return
     finals = {(o.home_goals, o.away_goals) for o in latest.values()
               if o.status == "finished" and o.home_goals is not None and o.away_goals is not None}
     if len(finals) == 1:

@@ -172,6 +172,30 @@ class MatchStats(Base):
     __table_args__ = (UniqueConstraint("fixture_id", "source", name="uq_stats"),)
 
 
+class StandingSnapshot(Base):
+    """One row per team per competition per day (append-only history of league tables)."""
+
+    __tablename__ = "standings"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    competition_id: Mapped[int] = mapped_column(ForeignKey("competitions.id"), index=True)
+    season: Mapped[str] = mapped_column(String(16))
+    snapshot_date: Mapped[str] = mapped_column(String(10))
+    team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"), nullable=True)
+    team_name: Mapped[str] = mapped_column(String(128))
+    position: Mapped[int] = mapped_column(Integer)
+    played: Mapped[int] = mapped_column(Integer)
+    won: Mapped[int] = mapped_column(Integer)
+    draw: Mapped[int] = mapped_column(Integer)
+    lost: Mapped[int] = mapped_column(Integer)
+    goals_for: Mapped[int] = mapped_column(Integer)
+    goals_against: Mapped[int] = mapped_column(Integer)
+    points: Mapped[int] = mapped_column(Integer)
+    form: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    source: Mapped[str] = mapped_column(String(64))
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    __table_args__ = (UniqueConstraint("competition_id", "season", "team_name", "snapshot_date", "source", name="uq_standing"),)
+
+
 class TeamNews(Base):
     __tablename__ = "team_news"
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -478,6 +502,9 @@ def log(level: str, component: str, message: str) -> None:
     """Persist a log line (never include secrets in `message`)."""
     import logging
 
+    from .security import redact
+
+    message = redact(message)
     logging.getLogger(f"fil.{component}").log(getattr(logging, level.upper(), 20), message)
     try:
         with session_scope() as s:
