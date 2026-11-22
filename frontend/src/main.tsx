@@ -19,8 +19,26 @@ const NAV = [
   ["/sources", "⇅", "Data Sources"], ["/system", "♥", "System Health"],
 ];
 
+const STATE_CLASS: Record<string, string> = { HEALTHY: "ok", WARNING: "warn", STALE: "warn", FAILED: "err", UNKNOWN: "" };
+
+function FreshnessBanner({ hd }: { hd: any }) {
+  if (!hd) return null;
+  const ageH = (Date.now() - new Date(hd.computed_at).getTime()) / 3.6e6;
+  const stale = ageH > 8;
+  const bad = hd.overall === "FAILED" || hd.overall === "STALE";
+  if (!stale && !bad) return null;
+  return (
+    <div className={`banner ${bad || stale ? "banner-warn" : ""}`}>
+      {stale && <b>STALE SNAPSHOT — </b>}
+      {stale ? `data last refreshed ${ageH.toFixed(0)}h ago (expected every 3h). Figures below may be out of date. ` : ""}
+      {bad && <>System health: <b>{hd.overall}</b>. See <a href="#/system">System Health</a>.</>}
+    </div>
+  );
+}
+
 function Shell() {
   const { data: h } = useApi<any>("health", 30000);
+  const { data: hd } = useApi<any>("health_detail", 120000);
   return (
     <div className="app">
       <aside className="side">
@@ -39,10 +57,12 @@ function Shell() {
         <div className="sim-banner">
           <span className={`dot ${h?.status === "ok" ? "ok" : h ? "err" : ""}`} /> backend {h?.status || "…"}<br />
           <span className={`dot ${h?.scheduler_running ? "ok" : "warn"}`} /> scheduler {h ? (h.scheduler_running ? "running" : "off / static snapshot") : "…"}<br />
-          <span className="muted">checked {h ? ago(h.time_utc) : "—"}</span>
+          <span className={`dot ${STATE_CLASS[hd?.overall] ?? ""}`} /> health {hd?.overall ?? "…"}<br />
+          <span className="muted">data as of {hd ? ago(hd.computed_at) : "—"}</span>
         </div>
       </aside>
       <main className="main">
+        <FreshnessBanner hd={hd} />
         <Routes>
           <Route path="/" element={<Overview />} />
           <Route path="/upcoming" element={<Upcoming />} />

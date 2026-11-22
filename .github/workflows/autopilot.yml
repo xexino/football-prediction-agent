@@ -1,17 +1,25 @@
 # Autonomous operation on free GitHub-hosted runners.
-# The SQLite database is persisted between runs as the asset `fil.db.gz` of the release tagged `db-latest`
-# (plus a 90-day workflow artifact per run). A read-only snapshot of the dashboard is pushed to the
-# `gh-pages` branch, which GitHub Pages serves. Optional secrets:
-# FOOTBALL_DATA_ORG_KEY, ODDS_API_KEY, API_FOOTBALL_KEY.
+#
+# Persistence model (see docs/OPERATIONS.md):
+#   * release `db-latest`  : fil.db.gz + manifest.json (row counts of the immutable tables)
+#   * release `db-backups` : dated, integrity-verified copies from daily runs (14 kept)
+#   * workflow artifact    : every run's database, kept 90 days
+# Safety rules:
+#   * if `db-latest` exists but cannot be downloaded, the run FAILS — it never falls back to an older
+#     snapshot (that would erase predictions/bets made since);
+#   * a database is only uploaded if it passes integrity checks AND none of the immutable tables shrank.
+# The dashboard snapshot is always republished (even after a failed job) so the System page shows the
+# problem; the page itself labels data age and staleness.
 name: Autopilot
 on:
   schedule:
     - cron: "10 5 * * *"        # daily full cycle (≈06:10 Rome)
-    - cron: "40 */3 * * *"      # fixtures/odds + pre-match review every 3h
+    - cron: "40 */3 * * *"      # fixtures/odds + results + pre-match review every 3h
+    - cron: "25 6 * * 1"        # weekly report + walk-forward backtest (Monday)
   workflow_dispatch:
     inputs:
       job:
-        description: "job to run (daily, fixtures_odds, results, prematch_review, weekly, bootstrap)"
+        description: "job (daily, fixtures_odds, results, prematch_review, weekly, bootstrap)"
         default: daily
 permissions:
   contents: write
@@ -35,47 +43,76 @@ jobs:
         with: { python-version: "3.13", cache: pip, cache-dependency-path: backend/requirements.txt }
       - uses: actions/setup-node@v4
         with: { node-version: "22", cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - uses: actions/cache@v4
+        with:
+          path: data/cache
+          key: provider-cache-${{ github.run_id }}
+          restore-keys: provider-cache-
       - run: pip install -r backend/requirements.txt
       - run: cd frontend && npm ci --no-audit --no-fund && npm run build
-      - name: Restore database
+      - name: Restore database (fail closed)
         id: restore
         run: |
           mkdir -p data
-          if gh release download db-latest -p fil.db.gz -D data --clobber; then
-            gunzip -f data/fil.db.gz && echo "found=true" >> "$GITHUB_OUTPUT"
+          if gh release view db-latest >/dev/null 2>&1; then
+            for i in 1 2 3 4; do
+              gh release download db-latest -p fil.db.gz -p manifest.json -D data --clobber && break
+              echo "download attempt $i failed"; sleep $((i * 15))
+            done
+            [ -f data/fil.db.gz ] || { echo "::error::db-latest exists but could not be downloaded — refusing to continue"; exit 1; }
+            gunzip -f data/fil.db.gz
+            [ -f data/manifest.json ] && mv data/manifest.json data/manifest.prev.json
+            echo "source=release" >> "$GITHUB_OUTPUT"
           elif [ -f data/snapshot/fil.db.gz ]; then
-            gunzip -c data/snapshot/fil.db.gz > data/fil.db && echo "found=true" >> "$GITHUB_OUTPUT"
+            gunzip -c data/snapshot/fil.db.gz > data/fil.db
+            echo "source=snapshot" >> "$GITHUB_OUTPUT"
           else
-            echo "found=false" >> "$GITHUB_OUTPUT"
+            echo "source=none" >> "$GITHUB_OUTPUT"
           fi
+          cd backend && python -m fil integrity
       - name: Pick job
         id: pick
         run: |
           JOB="${{ github.event.inputs.job }}"
-          if [ "${{ steps.restore.outputs.found }}" != "true" ]; then JOB=bootstrap
+          if [ "${{ steps.restore.outputs.source }}" = "none" ]; then JOB=bootstrap
           elif [ -z "$JOB" ]; then
-            if [ "${{ github.event.schedule }}" = "10 5 * * *" ]; then JOB=daily; else JOB=fixtures_odds; fi
-            # weekly report + backtest on Mondays' daily run
-            if [ "$JOB" = daily ] && [ "$(date -u +%u)" = 1 ]; then JOB=daily,weekly; fi
+            case "${{ github.event.schedule }}" in
+              "10 5 * * *") JOB=daily ;;
+              "25 6 * * 1") JOB=weekly ;;
+              *) JOB=results,fixtures_odds ;;
+            esac
           fi
           echo "job=$JOB" >> "$GITHUB_OUTPUT"
       - name: Run
+        id: runjob
         run: |
           cd backend
+          rc=0
           for j in $(echo "${{ steps.pick.outputs.job }}" | tr ',' ' '); do
-            if [ "$j" = fixtures_odds ]; then python -m fil job results; fi
-            python -m fil job "$j"
+            python -m fil job "$j" || rc=1
           done
-      - name: Persist database
+          exit $rc
+      - name: Persist database (guarded)
         if: always()
         run: |
           [ -f data/fil.db ] || exit 0
           python - <<'PY'
           import sqlite3; c = sqlite3.connect("data/fil.db"); c.execute("PRAGMA wal_checkpoint(TRUNCATE)"); c.close()
           PY
+          cd backend
+          python -m fil guard ../data/fil.db ../data/manifest.prev.json
+          python -m fil manifest ../data/manifest.json
+          cd ..
           gzip -kf data/fil.db
           gh release view db-latest >/dev/null 2>&1 || gh release create db-latest --title "Database (latest)" --notes "Automated SQLite snapshot of the Football Intelligence Lab. Do not edit." --latest=false
-          gh release upload db-latest data/fil.db.gz --clobber
+          gh release upload db-latest data/fil.db.gz data/manifest.json --clobber
+          if [ "${{ steps.pick.outputs.job }}" = daily ]; then
+            gh release view db-backups >/dev/null 2>&1 || gh release create db-backups --title "Database backups" --notes "Dated, integrity-verified daily copies (14 kept)." --latest=false
+            cp data/fil.db.gz "data/fil-$(date -u +%Y%m%d).db.gz"
+            gh release upload db-backups "data/fil-$(date -u +%Y%m%d).db.gz" --clobber
+            gh release view db-backups --json assets -q '.assets[].name' | sort | head -n -14 | xargs -r -I{} gh release delete-asset db-backups {} -y
+          fi
+          echo "PERSISTED=1" >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: "fil-db-${{ github.run_id }}", path: data/fil.db.gz, retention-days: 90, if-no-files-found: ignore }
@@ -85,9 +122,16 @@ jobs:
       - name: Publish dashboard to gh-pages (served at https://<owner>.github.io/<repo>/)
         if: always()
         run: |
+          [ -d site ] || exit 0
           cd site && touch .nojekyll
           git init -q -b gh-pages && git add -A
           git -c user.name="fil-autopilot" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
             commit -qm "Dashboard snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
           # generated branch: replaced on every run so the repository does not grow
           git push -f "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages
+      - name: Run report
+        if: always()
+        run: |
+          cd backend
+          { echo "## Autopilot — ${{ steps.pick.outputs.job }}"; echo; python -m fil run-report --last 3 || true;
+            echo; echo "Database persisted: ${PERSISTED:-0}"; } >> "$GITHUB_STEP_SUMMARY"

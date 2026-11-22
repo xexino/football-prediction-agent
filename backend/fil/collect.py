@@ -23,6 +23,13 @@ def provider(key: str):
     return p
 
 
+def _skip_if_open(p) -> dict | None:
+    if p.circuit_open():
+        log("WARNING", "collect", f"{p.name}: circuit open after repeated failures — skipped until cooldown ends")
+        return {"skipped": "circuit open"}
+    return None
+
+
 def register_all() -> None:
     ensure_competitions()
     for k in PROVIDERS:
@@ -81,7 +88,8 @@ def collect_fixtures() -> dict:
 
     tsdb = provider("thesportsdb")
     n, errs = 0, []
-    for c in COMPETITIONS:
+    skipped = _skip_if_open(tsdb)
+    for c in ([] if skipped else COMPETITIONS):
         if "tsdb" not in c["sources"]:
             continue
         try:
@@ -90,11 +98,13 @@ def collect_fixtures() -> dict:
             ingest_records(recs, tsdb.key)
         except ProviderError as e:
             errs.append(f"{c['code']}: {e}")
-    if errs and not n:
+    if skipped:
+        out["thesportsdb"] = skipped
+    elif errs and not n:
         tsdb.mark_error("; ".join(errs)[:900], requests=len(errs))
     else:
         tsdb.mark_success(records=n, requests=2 * sum(1 for c in COMPETITIONS if "tsdb" in c["sources"]))
-    out["thesportsdb"] = {"records": n, "errors": errs}
+    out.setdefault("thesportsdb", {"records": n, "errors": errs})
     from .ingest import merge_duplicates
 
     out["merged_duplicates"] = merge_duplicates()

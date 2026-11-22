@@ -18,7 +18,7 @@ import pandas as pd
 from ..catalog import BY_CODE, COMPETITIONS, INTL_TOURNAMENT
 from ..config import settings
 from ..timeutil import to_utc_naive, utcnow
-from .base import NotConfigured, Provider
+from .base import NotConfigured, Provider, ProviderError
 from .footballdata_uk import MatchRecord, _int, _price
 
 TSDB_STATUS = {
@@ -42,7 +42,12 @@ class TheSportsDB(Provider):
 
     def _events(self, endpoint: str, params: dict, ttl: int | None = None) -> tuple[list, str, datetime]:
         res = self.get(f"{self.base_url}/{settings.thesportsdb_key}/{endpoint}", params=params, ttl=ttl)
-        data = json.loads(res.text or "{}")
+        try:
+            data = json.loads(res.text or "{}")
+        except ValueError as exc:
+            raise ProviderError(f"malformed JSON from {res.url}: {exc}") from exc
+        if not isinstance(data, dict):
+            raise ProviderError(f"unexpected payload type from {res.url}")
         return (data.get("events") or data.get("results") or []), res.url, res.retrieved_at
 
     def _to_record(self, e: dict, comp_code: str, url: str, ts: datetime) -> MatchRecord | None:

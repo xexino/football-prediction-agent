@@ -32,7 +32,7 @@ export default function History() {
       <Card>
         <div className="tablewrap">
           <table>
-            <thead><tr><th>#</th><th>Placed</th><th>Match</th><th>Selection</th><th className="num">Odds</th><th className="num">Stake</th><th className="num">EV</th><th>Status</th><th>Score</th><th className="num">P/L</th><th className="num">Close</th><th className="num">CLV</th><th>Settlement</th></tr></thead>
+            <thead><tr><th>#</th><th>Placed</th><th>Match</th><th>Selection</th><th className="num">Odds</th><th className="num">Stake</th><th className="num">EV</th><th>Status</th><th>Score</th><th className="num">P/L</th><th className="num">Close</th><th className="num">CLV</th><th className="num">Bankroll before → after</th><th className="num">DQ</th><th>Reason / settlement</th></tr></thead>
             <tbody>{rows.map((b: any) => (
               <tr key={b.id}>
                 <td className="mono">{b.id}</td><td className="mono">{romeTime(b.created_at)}</td>
@@ -41,7 +41,9 @@ export default function History() {
                 <td className="num">{spct(b.ev)}</td><td><Status s={b.status} /></td><td className="mono">{b.fixture.score || "—"}</td>
                 <td className={`num ${cls(b.profit)}`}>{b.profit === null ? "—" : eur(b.profit, true)}</td>
                 <td className="num">{num(b.closing_price)}</td><td className={`num ${cls(b.clv)}`}>{spct(b.clv)}</td>
-                <td className="muted" style={{ fontSize: 11 }}>{b.settlement ? `${b.settlement.source}: ${b.settlement.rule}` : b.fixture.result_conflict ? "RESULT CONFLICT — held pending" : "awaiting verified result"}</td>
+                <td className="num">{eur(b.bankroll_before)} → {eur(b.bankroll_after_settlement ?? b.bankroll_after_stake)}</td>
+                <td className="num">{num(b.data_quality, 0)}</td>
+                <td className="muted" style={{ fontSize: 11 }}>{b.reason && <div>{b.reason}</div>}{b.settlement ? `${b.settlement.source}: ${b.settlement.rule}` : b.fixture.result_conflict ? "RESULT CONFLICT — held pending" : "awaiting verified result"}</td>
               </tr>))}</tbody>
           </table>
           {rows.length === 0 && <div className="empty">No bets match the filters.</div>}

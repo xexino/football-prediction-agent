@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from "react";
 import { useApi } from "../hooks";
-import { Card, Decision, Form, Loading, ProbBar, Quality, num, pct, romeTime, selLabel, spct } from "../ui";
+import { Card, Decision, Explanation, Form, Loading, ProbBar, Quality, num, pct, romeTime, selLabel, spct } from "../ui";
 
 export function ValueTable({ rows }: { rows: any[] }) {
   return (
@@ -64,13 +64,14 @@ function Detail({ f }: { f: any }) {
           <div className="tablewrap"><table>
             <thead><tr><th>Book</th><th className="num">1</th><th className="num">X</th><th className="num">2</th><th className="num">Margin</th><th className="num">O2.5</th><th className="num">U2.5</th><th className="num">AH line</th><th className="num">AH H</th><th className="num">AH A</th><th>Retrieved</th><th>Source</th></tr></thead>
             <tbody>{books.map(([b, o]) => (
-              <tr key={b}><td>{o.label}</td><td className="num">{num(o.home)}</td><td className="num">{num(o.draw)}</td><td className="num">{num(o.away)}</td>
+              <tr key={b} style={o.suspect ? { background: "#24141a" } : undefined}><td>{o.label}{o.suspect && <div className="neg" style={{ fontSize: 10 }}>⚠ {o.flags.join("; ")}</div>}</td><td className="num">{num(o.home)}</td><td className="num">{num(o.draw)}</td><td className="num">{num(o.away)}</td>
                 <td className="num">{pct(o.overround_1x2)}</td><td className="num">{num(o.over25)}</td><td className="num">{num(o.under25)}</td>
                 <td className="num">{o.ah_line ?? "—"}</td><td className="num">{num(o.ah_home)}</td><td className="num">{num(o.ah_away)}</td>
                 <td className="mono">{romeTime(o.retrieved_at)}</td><td><a href={o.source_url} target="_blank" rel="noreferrer">{o.source}</a></td></tr>))}</tbody>
           </table></div>
         ) : <div className="empty">No odds available from connected providers for this match.</div>}
       </Card>
+      {p && <Card title="Why the model thinks this" className="span2"><Explanation ex={inp.explanation} /></Card>}
       {f.value && <Card title="Value assessment" className="span2"><div className="tablewrap"><ValueTable rows={f.value} /></div><p className="expl">{p?.explanation}</p></Card>}
     </div>
   );
@@ -81,9 +82,13 @@ export default function Upcoming() {
   const [comp, setComp] = useState("");
   const [status, setStatus] = useState("");
   const [open, setOpen] = useState<number | null>(null);
+  const [day, setDay] = useState("");
+  const [team, setTeam] = useState("");
   const comps = useMemo(() => Array.from(new Set((data?.fixtures || []).map((f: any) => f.competition_name))).sort() as string[], [data]);
   if (!data) return <Loading error={error} />;
+  const days = Array.from(new Set(data.fixtures.map((f: any) => f.kickoff_rome?.slice(0, 10)))).sort() as string[];
   const rows = data.fixtures.filter((f: any) => (!comp || f.competition_name === comp) &&
+    (!day || f.kickoff_rome?.startsWith(day)) && (!team || `${f.home} ${f.away}`.toLowerCase().includes(team.toLowerCase())) &&
     (!status || (status === "predicted" ? f.prediction : status === "bet" ? f.prediction?.decision === "BET" : !f.prediction)));
   return (
     <>
@@ -91,6 +96,8 @@ export default function Upcoming() {
       <div className="filters">
         <select value={comp} onChange={(e) => setComp(e.target.value)}><option value="">All competitions ({data.fixtures.length})</option>{comps.map((c) => <option key={c}>{c}</option>)}</select>
         <select value={status} onChange={(e) => setStatus(e.target.value)}><option value="">All statuses</option><option value="predicted">Predicted</option><option value="bet">Value bets</option><option value="ineligible">Not eligible</option></select>
+        <select value={day} onChange={(e) => setDay(e.target.value)}><option value="">All dates</option>{days.map((d) => <option key={d}>{d}</option>)}</select>
+        <input placeholder="Team…" value={team} onChange={(e) => setTeam(e.target.value)} />
       </div>
       <Card>
         <div className="tablewrap" style={{ maxHeight: "none" }}>
@@ -100,7 +107,8 @@ export default function Upcoming() {
               {rows.map((f: any) => {
                 const p = f.prediction;
                 const ref = f.odds?.B365 || f.odds?.Avg || f.odds?.PS || Object.values(f.odds || {})[0];
-                const best = (f.value || []).filter((v: any) => v.ev_conservative !== null).sort((a: any, b: any) => b.ev_conservative - a.ev_conservative)[0];
+                const best = f.best_value;
+                const oddsErr = f.odds_suspect || (f.data_error_markets || []).length > 0;
                 return (
                   <React.Fragment key={f.id}>
                     <tr className="fixture-row" onClick={() => setOpen(open === f.id ? null : f.id)}>
@@ -111,8 +119,10 @@ export default function Upcoming() {
                       <td><ProbBar p={p?.probs?.["1X2"]} /></td>
                       <td className="num">{p ? `${num(p.exp_home_goals, 1)}–${num(p.exp_away_goals, 1)}` : "—"}</td>
                       <td><Quality q={p?.data_quality} /></td>
-                      <td className="mono">{best ? <span className={best.qualifies ? "pos" : "muted"}>{selLabel(best.market, best.selection, best.line)} {spct(best.ev_conservative)}</span> : "—"}</td>
-                      <td>{p ? <Decision d={p.decision} /> : new Date(f.kickoff_utc) <= new Date() ? <span className="badge b-pending">STARTED · AWAITING RESULT</span> : <Decision d={null} />}</td>
+                      <td className="mono">{best ? <span className={best.qualifies ? "pos" : "muted"}>{selLabel(best.market, best.selection, best.line)} {spct(best.ev_conservative)}</span> : "—"}
+                        {oddsErr && <div><span className="badge b-err" title="Some bookmaker prices look corrupt; those markets were excluded">⚠ ODDS ERROR</span></div>}</td>
+                      <td>{p ? <Decision d={p.decision} /> : new Date(f.kickoff_utc) <= new Date() ? <span className="badge b-pending">STARTED · AWAITING RESULT</span>
+                        : <span className="badge b-inel" title={(f.ineligible_reasons || []).join("; ")}>{f.coverage_label === "DATA COVERAGE ONLY — PREDICTIONS NOT ENABLED" ? "COVERAGE ONLY" : "INSUFFICIENT DATA"}</span>}</td>
                     </tr>
                     {open === f.id && <tr className="detail"><td colSpan={9}><Detail f={f} /></td></tr>}
                   </React.Fragment>

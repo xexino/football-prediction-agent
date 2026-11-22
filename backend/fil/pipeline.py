@@ -10,7 +10,7 @@ from sqlalchemy import func, select
 
 from .betting import ensure_bankroll, place_bet
 from .config import settings
-from .db import (Competition, Fixture, MatchStats, ModelVersion, OddsObservation, Prediction, TeamAlias, TeamNews,
+from .db import (Team, Competition, Fixture, MatchStats, ModelVersion, OddsObservation, Prediction, TeamAlias, TeamNews,
                  ValueAssessment, VirtualBet, log, session_scope)
 from .models.engine import MODEL_NAME, MODEL_VERSION, PARAMS, Engine, load_matches
 from .quality import confidence as confidence_score
@@ -142,6 +142,16 @@ def predict_upcoming(engine: Engine | None = None, horizon_days: int = HORIZON_D
                 "training_cutoff": engine.ref_date.isoformat(), "team_news_items": news,
                 "dc_params": {"rho": engine.dc[comp.code].rho, "home": engine.dc[comp.code].home},
             }
+            mk = {a.selection: a.market_prob for a in assessments if a.market == "1X2" and a.market_prob is not None}
+            try:
+                from .explain import build as build_explanation
+
+                inputs["explanation"] = _clean(build_explanation(
+                    engine, comp.code, fx.home_team_id, fx.away_team_id,
+                    s.get(Team, fx.home_team_id).name, s.get(Team, fx.away_team_id).name, pred, q, qb, conf,
+                    mk if len(mk) == 3 else None, odds_age, xg_share))
+            except Exception as exc:  # an explanation failure must never block a prediction
+                inputs["explanation"] = {"summary": f"explanation unavailable ({type(exc).__name__})"}
             ihash = _hash({"mv": mv_id, "odds": inputs["odds_observation_ids"],
                            "p": {k: round(v, 3) for k, v in probs["1X2"].items()}})
             reason = ""
@@ -165,7 +175,7 @@ def predict_upcoming(engine: Engine | None = None, horizon_days: int = HORIZON_D
             slots = settings.risk.max_bets_per_match - len(already)
             chosen = select_bets(assessments, already, slots) if slots > 0 else []
             decision = "BET" if chosen else "NO_BET"
-            expl = _explain(pred, q, conf, assessments, chosen)
+            expl = inputs["explanation"].get("summary", "") + " " + _explain(pred, q, conf, assessments, chosen)
             p = Prediction(fixture_id=fx.id, model_version_id=mv_id, created_at=now, kickoff_utc=fx.kickoff_utc,
                            revision=0 if latest is None else latest.revision + 1,
                            revision_of=None if latest is None else (latest.revision_of or latest.id),

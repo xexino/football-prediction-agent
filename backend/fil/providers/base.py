@@ -4,7 +4,7 @@ from __future__ import annotations
 import hashlib
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import httpx
@@ -16,7 +16,15 @@ from ..timeutil import utcnow
 USER_AGENT = "FootballIntelligenceLab/1.0 (research simulation; non-commercial)"
 
 
+CIRCUIT_THRESHOLD = 3      # consecutive failed runs before the provider is skipped
+CIRCUIT_COOLDOWN_H = 6
+
+
 class ProviderError(Exception):
+    pass
+
+
+class CircuitOpen(ProviderError):
     pass
 
 
@@ -75,12 +83,26 @@ class Provider:
             ds.last_attempt_at = now
             ds.requests_total = (ds.requests_total or 0) + requests
             ds.records_total = (ds.records_total or 0) + records
+            info = dict(ds.quota_info or {})
             if quota:
-                ds.quota_info = quota
+                info.update(quota)
+            circ = dict(info.get("circuit") or {"failures": 0, "open_until": None})
             if ok:
                 ds.status, ds.last_success_at = "ok", now
+                circ = {"failures": 0, "open_until": None}
             else:
                 ds.status, ds.last_error_at, ds.last_error = "error", now, (error or "")[:1000]
+                circ["failures"] = circ.get("failures", 0) + 1
+                if circ["failures"] >= CIRCUIT_THRESHOLD:
+                    circ["open_until"] = (now + timedelta(hours=CIRCUIT_COOLDOWN_H)).isoformat()
+            info["circuit"] = circ
+            ds.quota_info = info
+
+    def circuit_open(self) -> bool:
+        with session_scope() as s:
+            ds = s.query(DataSource).filter_by(key=self.key).one_or_none()
+            until = ((ds.quota_info or {}).get("circuit") or {}).get("open_until") if ds else None
+        return bool(until and datetime.fromisoformat(until) > utcnow())
 
     def mark_success(self, records: int = 0, requests: int = 0, quota: dict | None = None):
         self._mark(True, records=records, requests=requests, quota=quota)
@@ -103,7 +125,7 @@ class Provider:
         cpath = self.cache_dir / cache_key
         if ttl > 0 and cpath.exists() and time.time() - cpath.stat().st_mtime < ttl:
             return FetchResult(cpath.read_text(encoding="utf-8"), self.redact(str(req.url)),
-                               datetime.utcfromtimestamp(cpath.stat().st_mtime), from_cache=True)
+                               datetime.fromtimestamp(cpath.stat().st_mtime, timezone.utc).replace(tzinfo=None), from_cache=True)
         last_exc: Exception | None = None
         for attempt in range(retries):
             wait = self.min_interval_s - (time.time() - self._last_request)
@@ -135,5 +157,5 @@ class Provider:
         if cpath.exists():
             log("WARNING", f"provider.{self.key}", f"network failure, serving stale cache for {self.redact(url)}: {last_exc}")
             return FetchResult(cpath.read_text(encoding="utf-8"), self.redact(str(req.url)),
-                               datetime.utcfromtimestamp(cpath.stat().st_mtime), from_cache=True)
+                               datetime.fromtimestamp(cpath.stat().st_mtime, timezone.utc).replace(tzinfo=None), from_cache=True)
         raise ProviderError(f"request failed after {retries} attempts: {type(last_exc).__name__}: {last_exc}")

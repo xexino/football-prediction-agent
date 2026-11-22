@@ -105,3 +105,31 @@ export const selLabel = (market: string, sel: string, line?: number | null) => {
 };
 
 export const tooltipStyle = { contentStyle: { background: "#0d131a", border: "1px solid #2a3a4b", borderRadius: 7, fontFamily: "JetBrains Mono", fontSize: 11 }, labelStyle: { color: "#7d8c9b" } };
+
+export function State({ s }: { s?: string | null }) {
+  const v = s || "UNKNOWN";
+  return <span className={`state s-${v}`}>{v}</span>;
+}
+
+export function Explanation({ ex }: { ex: any }) {
+  if (!ex) return <div className="muted">No structured explanation stored for this prediction (created before explanations were added).</div>;
+  return (
+    <div>
+      <p style={{ marginTop: 0 }}>{ex.summary}</p>
+      <div className="grid g2">
+        <div>
+          <h3>Model factors (fitted parameters)</h3>
+          {(ex.all_factors || []).map((f: any) => <div className="factor" key={f.factor}><span>{f.factor} <span className="muted">→ {f.on}</span></span><span>{f.effect}</span></div>)}
+        </div>
+        <div>
+          <h3>What weakens this prediction</h3>
+          {ex.weakening?.length ? <ul className="tight">{ex.weakening.map((w: string) => <li key={w}>{w}</li>)}</ul> : <div className="muted">Nothing flagged.</div>}
+          <h3 style={{ marginTop: 10 }}>Missing data</h3>
+          {ex.missing?.length ? <ul className="tight">{ex.missing.map((w: string) => <li key={w}>{w}</li>)}</ul> : <div className="muted">None.</div>}
+          {ex.freshness && <p className="muted mono" style={{ fontSize: 11 }}>{ex.freshness}</p>}
+        </div>
+      </div>
+      <p className="muted" style={{ fontSize: 11 }}>{ex.note}</p>
+    </div>
+  );
+}
