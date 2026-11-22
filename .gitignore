@@ -1,0 +1,15 @@
+__pycache__/
+*.pyc
+.env
+data/*.db
+data/*.db-*
+data/backups/*
+!data/backups/.gitkeep
+data/cache/
+data/logs/
+frontend/node_modules/
+frontend/dist/
+backend/fil/static/
+.pytest_cache/
+*.egg-info/
+site/

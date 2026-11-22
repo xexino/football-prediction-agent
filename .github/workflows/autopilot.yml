@@ -1,0 +1,93 @@
+# Autonomous operation on free GitHub-hosted runners.
+# The SQLite database is persisted between runs as the asset `fil.db.gz` of the release tagged `db-latest`
+# (plus a 90-day workflow artifact per run). A read-only snapshot of the dashboard is deployed to GitHub Pages.
+# One-time setup by the repo owner: Settings → Pages → Source: "GitHub Actions". Optional secrets:
+# FOOTBALL_DATA_ORG_KEY, ODDS_API_KEY, API_FOOTBALL_KEY.
+name: Autopilot
+on:
+  schedule:
+    - cron: "10 5 * * *"        # daily full cycle (≈06:10 Rome)
+    - cron: "40 */3 * * *"      # fixtures/odds + pre-match review every 3h
+  workflow_dispatch:
+    inputs:
+      job:
+        description: "job to run (daily, fixtures_odds, results, prematch_review, weekly, bootstrap)"
+        default: daily
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: autopilot
+  cancel-in-progress: false
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      FIL_DB_PATH: data/fil.db
+      FIL_SCHEDULER: "0"
+      FOOTBALL_DATA_ORG_KEY: ${{ secrets.FOOTBALL_DATA_ORG_KEY }}
+      ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
+      API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.13", cache: pip, cache-dependency-path: backend/requirements.txt }
+      - uses: actions/setup-node@v4
+        with: { node-version: "22", cache: npm, cache-dependency-path: frontend/package-lock.json }
+      - run: pip install -r backend/requirements.txt
+      - run: cd frontend && npm ci --no-audit --no-fund && npm run build
+      - name: Restore database
+        id: restore
+        run: |
+          mkdir -p data
+          if gh release download db-latest -p fil.db.gz -D data --clobber; then
+            gunzip -f data/fil.db.gz && echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Pick job
+        id: pick
+        run: |
+          JOB="${{ github.event.inputs.job }}"
+          if [ "${{ steps.restore.outputs.found }}" != "true" ]; then JOB=bootstrap
+          elif [ -z "$JOB" ]; then
+            if [ "${{ github.event.schedule }}" = "10 5 * * *" ]; then JOB=daily; else JOB=fixtures_odds; fi
+            # weekly report + backtest on Mondays' daily run
+            if [ "$JOB" = daily ] && [ "$(date -u +%u)" = 1 ]; then JOB=daily,weekly; fi
+          fi
+          echo "job=$JOB" >> "$GITHUB_OUTPUT"
+      - name: Run
+        run: |
+          cd backend
+          for j in $(echo "${{ steps.pick.outputs.job }}" | tr ',' ' '); do
+            if [ "$j" = fixtures_odds ]; then python -m fil job results; fi
+            python -m fil job "$j"
+          done
+      - name: Persist database
+        if: always()
+        run: |
+          [ -f data/fil.db ] || exit 0
+          python - <<'PY'
+          import sqlite3; c = sqlite3.connect("data/fil.db"); c.execute("PRAGMA wal_checkpoint(TRUNCATE)"); c.close()
+          PY
+          gzip -kf data/fil.db
+          gh release view db-latest >/dev/null 2>&1 || gh release create db-latest --title "Database (latest)" --notes "Automated SQLite snapshot of the Football Intelligence Lab. Do not edit." --latest=false
+          gh release upload db-latest data/fil.db.gz --clobber
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: "fil-db-${{ github.run_id }}", path: data/fil.db.gz, retention-days: 90, if-no-files-found: ignore }
+      - name: Export static dashboard
+        run: cd backend && python -m fil export-static ../site
+      - uses: actions/upload-pages-artifact@v3
+        with: { path: site }
+  deploy:
+    needs: run
+    runs-on: ubuntu-latest
+    continue-on-error: true   # Pages may not be enabled yet
+    environment: { name: github-pages, url: "${{ steps.deployment.outputs.page_url }}" }
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

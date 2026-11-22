@@ -1,0 +1,182 @@
+"""Write normalised provider records into the database.
+
+Handles duplicates (same teams within ±36h in one competition), kickoff changes, postponements,
+multi-source result verification and conflicts, and append-only odds snapshots.
+"""
+from __future__ import annotations
+
+import hashlib
+import json
+from collections import defaultdict
+from datetime import timedelta
+
+from sqlalchemy import select
+from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+from sqlalchemy.orm import Session
+
+from .catalog import BY_CODE, COMPETITIONS
+from .db import Competition, Fixture, MatchStats, OddsObservation, ResultObservation, log, session_scope
+from .providers.footballdata_uk import MatchRecord
+from .teamnames import TeamResolver
+from .timeutil import utcnow
+
+PRIMARY_SOURCES = {"football_data_uk", "intl_results"}  # authoritative for team naming
+DUP_WINDOW = timedelta(hours=36)
+
+
+def ensure_competitions() -> None:
+    with session_scope() as s:
+        existing = {c.code: c for c in s.scalars(select(Competition))}
+        for c in COMPETITIONS:
+            comp = existing.get(c["code"]) or Competition(code=c["code"])
+            comp.name, comp.country, comp.region = c["name"], c["country"], c["region"]
+            comp.kind, comp.priority, comp.sources = c.get("kind", "league"), c["priority"], c["sources"]
+            s.add(comp)
+
+
+def odds_hash(bookmaker: str, kind: str, m: dict) -> str:
+    payload = json.dumps([bookmaker, kind, sorted((k, v) for k, v in m.items() if v is not None)])
+    return hashlib.sha1(payload.encode()).hexdigest()
+
+
+class Ingestor:
+    def __init__(self, s: Session, source: str):
+        self.s, self.source = s, source
+        self.resolver = TeamResolver(s)
+        self.comp_ids = {c.code: c.id for c in s.scalars(select(Competition))}
+        self._fx_index: dict[int, dict] = {}
+        self.stats = defaultdict(int)
+
+    def _index(self, comp_id: int) -> dict:
+        if comp_id not in self._fx_index:
+            idx = defaultdict(list)
+            for f in self.s.scalars(select(Fixture).where(Fixture.competition_id == comp_id)):
+                idx[(f.home_team_id, f.away_team_id)].append(f)
+            self._fx_index[comp_id] = idx
+        return self._fx_index[comp_id]
+
+    def _candidates(self, comp_id: int) -> list[int] | None:
+        idx = self._index(comp_id)
+        ids = {t for k in idx for t in k}
+        return list(ids) if ids else None
+
+    def add(self, rec: MatchRecord) -> Fixture | None:
+        comp_id = self.comp_ids.get(rec.comp_code)
+        if comp_id is None:
+            return None
+        primary = self.source in PRIMARY_SOURCES
+        national = BY_CODE[rec.comp_code].get("kind") == "international"
+        cands = None if primary else self._candidates(comp_id)
+        h, hc = self.resolver.resolve(rec.home, self.source, rec.country, cands, is_national=national)
+        a, ac = self.resolver.resolve(rec.away, self.source, rec.country, cands, is_national=national)
+        if h is None or a is None or h == a:
+            self.stats["unresolved"] += 1
+            return None
+        idx = self._index(comp_id)
+        fx = None
+        for f in idx[(h, a)]:
+            if abs(f.kickoff_utc - rec.kickoff_utc) <= DUP_WINDOW:
+                fx = f
+                break
+        now = utcnow()
+        if fx is None:
+            fx = Fixture(competition_id=comp_id, season=rec.season, home_team_id=h, away_team_id=a,
+                         kickoff_utc=rec.kickoff_utc, match_date=rec.kickoff_utc.strftime("%Y-%m-%d"),
+                         neutral=rec.neutral, status="scheduled", first_seen_source=self.source,
+                         external_ids={self.source: rec.external_id} if rec.external_id else {})
+            self.s.add(fx)
+            self.s.flush()
+            idx[(h, a)].append(fx)
+            self.stats["fixtures_new"] += 1
+        else:
+            self.stats["fixtures_dup"] += 1
+            if rec.external_id and fx.external_ids.get(self.source) != rec.external_id:
+                fx.external_ids = {**fx.external_ids, self.source: rec.external_id}
+            if fx.status in ("scheduled", "postponed") and rec.kickoff_utc != fx.kickoff_utc and (primary or not fx.first_seen_source):
+                if abs(rec.kickoff_utc - fx.kickoff_utc) > timedelta(minutes=1):
+                    self.stats["kickoff_changes"] += 1
+                    fx.kickoff_utc = rec.kickoff_utc
+            if rec.season and not fx.season:
+                fx.season = rec.season
+        if min(hc, ac) < 0.95:
+            self.stats["fuzzy_team_matches"] += 1
+
+        # -------------------------------------------------- results / status
+        if rec.status in ("finished", "postponed", "cancelled", "abandoned"):
+            obs = dict(fixture_id=fx.id, source=self.source, status=rec.status, home_goals=rec.home_goals,
+                       away_goals=rec.away_goals, ht_home_goals=rec.ht_home, ht_away_goals=rec.ht_away,
+                       retrieved_at=rec.retrieved_at or now)
+            r = self.s.execute(sqlite_insert(ResultObservation).values(**obs).on_conflict_do_nothing())
+            if r.rowcount:
+                self.stats["result_observations"] += 1
+                reconcile(self.s, fx)
+            fx.updated_at = now
+
+        # -------------------------------------------------- stats
+        if rec.stats:
+            vals = dict(fixture_id=fx.id, source=self.source, retrieved_at=rec.retrieved_at or now, **rec.stats)
+            self.s.execute(sqlite_insert(MatchStats).values(**vals).on_conflict_do_nothing())
+
+        # -------------------------------------------------- odds (append-only snapshots)
+        for bookmaker, kind, m in rec.odds:
+            hsh = odds_hash(bookmaker, kind, m)
+            vals = dict(fixture_id=fx.id, source=self.source, bookmaker=bookmaker, kind=kind,
+                        retrieved_at=rec.retrieved_at or now, source_url=rec.source_url, is_current=True,
+                        content_hash=hsh, **{k: m.get(k) for k in
+                                             ("home", "draw", "away", "over25", "under25", "ah_line", "ah_home", "ah_away")})
+            r = self.s.execute(sqlite_insert(OddsObservation).values(**vals).on_conflict_do_nothing())
+            if r.rowcount:
+                self.stats["odds_snapshots"] += 1
+                if fx.status == "finished":
+                    continue  # 'current' flag only matters for upcoming fixtures
+                # older snapshots of the same book/kind are no longer current
+                self.s.query(OddsObservation).filter(
+                    OddsObservation.fixture_id == fx.id, OddsObservation.source == self.source,
+                    OddsObservation.bookmaker == bookmaker, OddsObservation.kind == kind,
+                    OddsObservation.content_hash != hsh, OddsObservation.is_current.is_(True),
+                ).update({"is_current": False}, synchronize_session=False)
+        return fx
+
+
+def reconcile(s: Session, fx: Fixture) -> None:
+    """Derive a fixture's verified status/result from all source observations.
+
+    * all sources agreeing on a final score -> finished, verified
+    * sources disagreeing -> result_conflict = True and the result is withheld (bets stay pending)
+    * only postponed/cancelled/abandoned reports -> that status (no score)
+    """
+    obs = s.scalars(select(ResultObservation).where(ResultObservation.fixture_id == fx.id)
+                    .order_by(ResultObservation.retrieved_at)).all()
+    latest = {}
+    for o in obs:
+        latest[o.source] = o
+    finals = {(o.home_goals, o.away_goals) for o in latest.values()
+              if o.status == "finished" and o.home_goals is not None and o.away_goals is not None}
+    if len(finals) == 1:
+        o = next(o for o in latest.values() if o.status == "finished")
+        fx.status, fx.home_goals, fx.away_goals = "finished", o.home_goals, o.away_goals
+        hts = {(x.ht_home_goals, x.ht_away_goals) for x in latest.values() if x.ht_home_goals is not None}
+        if len(hts) == 1:
+            fx.ht_home_goals, fx.ht_away_goals = next(iter(hts))
+        fx.result_source = ",".join(sorted(k for k, v in latest.items() if v.status == "finished"))
+        fx.result_verified_at = utcnow()
+        fx.result_conflict = False
+    elif len(finals) > 1:
+        if not fx.result_conflict:
+            log("WARNING", "ingest", f"result conflict for fixture {fx.id}: {sorted(finals)} from {sorted(latest)}")
+        fx.result_conflict = True
+        fx.status, fx.home_goals, fx.away_goals = "unknown", None, None
+    else:
+        statuses = {o.status for o in latest.values()}
+        for st in ("abandoned", "cancelled", "postponed"):
+            if st in statuses and fx.status != "finished":
+                fx.status = st
+                break
+
+
+def ingest_records(records: list[MatchRecord], source: str) -> dict:
+    with session_scope() as s:
+        ing = Ingestor(s, source)
+        for rec in sorted(records, key=lambda r: r.kickoff_utc):
+            ing.add(rec)
+        return dict(ing.stats)

@@ -1,0 +1,5 @@
+frontend/node_modules
+backend/fil/static
+data
+.git
+**/__pycache__
