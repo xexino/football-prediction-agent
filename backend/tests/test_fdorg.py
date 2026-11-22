@@ -270,11 +270,13 @@ def test_standings_stored_append_only_per_day(db, token, monkeypatch, tmp_path):
     fake_http(monkeypatch, [Resp(200, table)], [])
     rows, season, url, ts = provider(tmp_path).standings("PL")
     assert season == "2026" and len(rows) == 2
+    rows[0]["group"] = "Matchday"  # league tables carry a non-group label: must not be appended to names
     assert collect._store_standings("PL", rows, season, ts) == 2
-    assert collect._store_standings("PL", rows, season, ts) == 0  # same day: no duplicates
+    assert collect._store_standings("PL", rows, season, ts) == 2  # same day re-run replaces, never duplicates
     with session_scope() as s:
         st = s.scalars(select(StandingSnapshot).order_by(StandingSnapshot.position)).all()
         assert [x.team_id is not None for x in st] == [True, True]
+        assert [x.team_name for x in st] == ["Alpha", "Beta"]
 
 
 # ------------------------------------------------------------------ secret leakage
