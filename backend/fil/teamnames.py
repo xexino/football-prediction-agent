@@ -15,6 +15,7 @@ _SUBS = {
     "manchester": "man", "united": "utd", "utd": "utd", "city": "city", "saint": "st", "st.": "st",
     "wolverhampton wanderers": "wolves", "nottingham": "nottm", "internazionale": "inter", "borussia": "",
     "munchen": "munich", "monchengladbach": "mgladbach", "olympique": "", "sporting": "sp",
+    "paris saint germain": "paris sg", "psg": "paris sg",
 }
 
 
@@ -52,7 +53,9 @@ class TeamResolver:
         q = select(TeamAlias.team_id, TeamAlias.confidence).where(TeamAlias.alias_norm == norm)
         rows = self.s.execute(q).all()
         if candidates is not None:
-            rows = [r for r in rows if r[0] in candidates] or rows
+            # only aliases of teams that actually play in this competition: an alias learnt in another
+            # league (e.g. "vitoria" = Guimaraes in Portugal) must never capture a namesake elsewhere
+            rows = [r for r in rows if r[0] in candidates]
         if rows:
             team_id = rows[0][0]
             team = self.s.get(Team, team_id)
@@ -68,7 +71,10 @@ class TeamResolver:
             for tid, tname in teams:
                 r = difflib.SequenceMatcher(None, norm, normalize(tname)).ratio()
                 tn = normalize(tname)
-                if norm and tn and (norm in tn or tn in norm):
+                short, long_ = sorted((norm, tn), key=len)
+                # containment only counts for multi-word names ("man utd" in "man utd fc"); a single word such
+                # as "paris" must not match both "Paris FC" and "Paris Saint-Germain"
+                if short and len(short.split()) >= 2 and short in long_:
                     r = max(r, 0.9)
                 if r > score:
                     best, score = tid, r

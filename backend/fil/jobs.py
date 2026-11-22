@@ -19,6 +19,7 @@ from sqlalchemy import select
 from . import backup, collect, coverage, pipeline, reports
 from .betting import settle_pending
 from .db import JobRun, log, session_scope
+from .security import redact
 from .timeutil import utcnow
 
 _LOCK = threading.Lock()
@@ -41,6 +42,8 @@ def _steps_daily():
         ("results", lambda: collect.collect_history(full=False), False),
         ("fixtures", collect.collect_fixtures, False),
         ("international", collect.collect_international, False),
+        ("fdorg_full", lambda: collect.collect_fdorg("full"), False),
+        ("fdorg_backfill", lambda: collect.collect_fdorg("backfill"), False),
         ("settle", settle_pending, True),
         ("evaluate", pipeline.evaluate_predictions, False),
         ("retrain", lambda: _retrain(), False),
@@ -137,10 +140,10 @@ def run_job(name: str, timeout_s: int | None = None) -> dict:
                 steps[sname] = {"status": "success", "duration_s": round(time.time() - t0, 1)}
                 results[sname] = res
             except Exception as exc:
-                msg = f"{type(exc).__name__}: {exc}"
+                msg = redact(f"{type(exc).__name__}: {exc}")
                 steps[sname] = {"status": "error", "duration_s": round(time.time() - t0, 1), "critical": critical,
                                 "error": msg[:600]}
-                errors.append(f"{sname}: {msg}\n{traceback.format_exc()[-1500:]}")
+                errors.append(redact(f"{sname}: {msg}\n{traceback.format_exc()[-1500:]}"))
                 log("ERROR", f"job.{name}.{sname}", msg)
                 critical_failed = critical_failed or critical
         failed = [k for k, v in steps.items() if v["status"] == "error"]
@@ -150,6 +153,7 @@ def run_job(name: str, timeout_s: int | None = None) -> dict:
             status = "partial"
         else:
             status = "success"
+        results = _jsonable_redacted(results)
         summary = {"steps": steps, "results": results, "report": run_report(name, steps, results, status)}
         err = "\n\n".join(errors)[-6000:] if errors else None
         with session_scope() as s:
@@ -206,6 +210,12 @@ def report_markdown(run: JobRun) -> str:
     if run.error:
         lines += ["", "```", run.error[:1500], "```"]
     return "\n".join(lines)
+
+
+def _jsonable_redacted(x):
+    import json
+
+    return json.loads(redact(json.dumps(x, default=str))) if x is not None else None
 
 
 def _jsonable(x):

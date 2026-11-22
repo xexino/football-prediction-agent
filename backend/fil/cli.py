@@ -128,7 +128,7 @@ def export_static(out: Path):
     snap = {
         "health": api.health(), "overview": api.overview(), "upcoming": api.upcoming(days=14),
         "predictions": api.predictions(limit=2000), "bets": api.bets(limit=5000), "analytics": api.analytics(),
-        "sources": api.sources(), "system": api.system(), "health_detail": api.health_detail(), "reports": api.get_reports(limit=30), "meta": api.meta(),
+        "sources": api.sources(), "system": api.system(), "health_detail": api.health_detail(), "standings": api.standings(), "reports": api.get_reports(limit=30), "meta": api.meta(),
     }
     for k, v in snap.items():
         (data / f"{k}.json").write_text(json.dumps(v, default=str))

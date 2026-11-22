@@ -49,6 +49,7 @@ class MatchRecord:
     retrieved_at: datetime | None = None
     neutral: bool = False
     external_id: str | None = None
+    aliases: tuple = ()  # alternative names from the same provider (e.g. full name, short name, TLA)
 
 
 def _num(v):

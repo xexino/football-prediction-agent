@@ -1,5 +1,21 @@
 # Changelog
 
+## 2026-11-22 — football-data.org integration
+* New `providers/football_data_org.py` client: X-Auth-Token header, adaptive throttling from `X-Requests-Available-Minute`
+  and `X-RequestCounter-Reset`, 429 backoff, retries with stale-cache fallback, invalid-token (HTTP 400) and plan-limit
+  (HTTP 403) errors, malformed-response handling.
+* Sync modes: quick every 3h (1 request), full daily (competitions + current-season matches + standings, ~25 requests),
+  one-time Champions League backfill (2023–2025).
+* New append-only `standings` table, `/api/standings`, league positions in match details.
+* Extra-time matches settle on the 90-minute score (`finished_aet`) instead of conflicting with sources that report
+  scores after extra time. Delayed in-play scores are never stored.
+* Duplicate prevention: provider-id linking; no invented teams or fixtures in primary-owned leagues; stricter fuzzy
+  matching (fixes "Paris Saint-Germain" → Paris FC); aliases learnt in one league can no longer capture a namesake in
+  another.
+* Security: global log redaction, redaction in DB logs, job errors and provider errors; the workflow passes secrets
+  only to the Run step; secret-leak tests cover logs, the DB, exports, backups and the frontend source.
+* Tests: 70 → 91.
+
 ## 2026-11-22 — reliability & transparency release
 ### Fixed
 * Workflow could overwrite the production DB with the launch snapshot after a transient download failure. Restore now

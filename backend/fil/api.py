@@ -141,6 +141,27 @@ def health():
             "scheduler_running": scheduler.running(), "time_utc": iso(utcnow()), "simulation_only": True}
 
 
+@app.get("/api/standings")
+def standings():
+    from .db import StandingSnapshot
+
+    with session_scope() as s:
+        comps = _comps(s)
+        latest = s.execute(select(StandingSnapshot.competition_id, func.max(StandingSnapshot.snapshot_date))
+                           .group_by(StandingSnapshot.competition_id)).all()
+        out = {}
+        for cid, day in latest:
+            rows = s.scalars(select(StandingSnapshot).where(StandingSnapshot.competition_id == cid,
+                                                            StandingSnapshot.snapshot_date == day)
+                             .order_by(StandingSnapshot.team_name.contains("(").asc(), StandingSnapshot.position)).all()
+            out[comps[cid].code] = {"competition": comps[cid].name, "snapshot_date": day, "source": "football-data.org",
+                                    "rows": [{"position": r.position, "team": r.team_name, "team_id": r.team_id,
+                                              "played": r.played, "won": r.won, "draw": r.draw, "lost": r.lost,
+                                              "gf": r.goals_for, "ga": r.goals_against, "points": r.points,
+                                              "form": r.form} for r in rows]}
+        return out
+
+
 @app.get("/api/health_detail")
 def health_detail():
     from .health import compute
@@ -199,6 +220,13 @@ def upcoming(days: int = Query(7, ge=1, le=21), competition: str | None = None, 
         preds = {}
         for p in s.scalars(select(Prediction).where(Prediction.fixture_id.in_(ids)).order_by(Prediction.revision)):
             preds[p.fixture_id] = p
+        from .db import StandingSnapshot
+
+        pos = {}
+        for r in s.scalars(select(StandingSnapshot).order_by(StandingSnapshot.snapshot_date)):
+            if r.team_id:
+                pos[(r.competition_id, r.team_id)] = {"position": r.position, "points": r.points, "played": r.played,
+                                                      "as_of": r.snapshot_date, "source": "football-data.org"}
         news = {}
         for n in s.scalars(select(TeamNews).where(TeamNews.fixture_id.in_(ids))):
             news.setdefault(n.fixture_id, []).append({"team": teams.get(n.team_id), "type": n.news_type, "player": n.player_name,
@@ -215,6 +243,7 @@ def upcoming(days: int = Query(7, ge=1, le=21), competition: str | None = None, 
                     "team_news": news.get(f.id, []), "team_news_status": "confirmed items" if f.id in news else
                     "no team-news source connected (unverified — treat as unknown)"}
             item["odds_suspect"] = any(o.get("suspect") for o in item["odds"].values())
+            item["table"] = {side: pos.get((f.competition_id, tid)) for side, tid in (("home", f.home_team_id), ("away", f.away_team_id))}
             if p is not None:
                 item["prediction"] = _pred_dict(p, with_inputs=True)
                 item["value"] = [_va_dict(v) for v in s.scalars(select(ValueAssessment).where(ValueAssessment.prediction_id == p.id))]

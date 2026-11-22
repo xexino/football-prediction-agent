@@ -10,8 +10,8 @@ from .db import log
 from .ingest import ensure_competitions, ingest_records
 from .providers.base import NotConfigured, ProviderError
 from .providers.footballdata_uk import FootballDataUK, season_codes
-from .providers.others import (APIFootball, FootballDataOrg, InternationalResults, ODDS_API_SPORTS, OddsAPI,
-                               TheSportsDB)
+from .providers.football_data_org import AuthError, FootballDataOrg, Restricted
+from .providers.others import APIFootball, InternationalResults, ODDS_API_SPORTS, OddsAPI, TheSportsDB
 from .timeutil import utcnow
 
 PROVIDERS = {p.key: p for p in (FootballDataUK, TheSportsDB, InternationalResults, FootballDataOrg, OddsAPI, APIFootball)}
@@ -109,14 +109,7 @@ def collect_fixtures() -> dict:
 
     out["merged_duplicates"] = merge_duplicates()
 
-    fdorg = provider("football_data_org")
-    if fdorg.configured:
-        try:
-            recs = fdorg.matches()
-            out["football_data_org"] = ingest_records(recs, fdorg.key)
-            fdorg.mark_success(records=len(recs), requests=1, quota=getattr(fdorg, "last_quota", None))
-        except ProviderError as e:
-            fdorg.mark_error(str(e), requests=1)
+    out["football_data_org"] = collect_fdorg("quick")
     oapi = provider("the_odds_api")
     if oapi.configured:
         n = 0
@@ -151,3 +144,114 @@ def collect_results() -> dict:
     out = {"football_data_uk": collect_history(full=False)}
     out["fixtures"] = collect_fixtures()  # TheSportsDB / football-data.org also report results
     return out
+
+
+def collect_fdorg(mode: str = "quick") -> dict:
+    """Synchronise football-data.org.
+
+    quick    : one /matches request (±window) — fixtures, kickoff changes, results (every 3h)
+    full     : competitions + current-season matches + standings for every plan competition (daily, ~25 requests)
+    backfill : seasons 2023-2025 of competitions with no other history source (Champions League), once each
+    """
+    from datetime import timedelta as _td
+
+    from .db import Competition, DataSource, StandingSnapshot, Team, session_scope
+    from .providers.football_data_org import CUP_CODES, FREE_SEASONS, LEAGUE_CODES
+    from .teamnames import TeamResolver
+    from sqlalchemy import select
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+    p = provider("football_data_org")
+    if not p.configured:
+        return {"skipped": "not configured (FOOTBALL_DATA_ORG_KEY not set)"}
+    if (skipped := _skip_if_open(p)):
+        return skipped
+    out = {"mode": mode, "records": 0, "errors": [], "restricted": []}
+    stats_total: dict = {}
+
+    def ingest(recs):
+        st = ingest_records(recs, p.key)
+        out["records"] += len(recs)
+        for k, v in st.items():
+            stats_total[k] = stats_total.get(k, 0) + v
+
+    try:
+        if mode == "quick":
+            ingest(p.matches(days_back=3, days_forward=7))
+            out["in_play_seen_delayed"] = getattr(p, "in_play_seen", 0)
+        elif mode == "full":
+            comps = p.competitions()
+            out["competitions"] = [c["code"] for c in comps if c.get("plan") == "TIER_ONE"]
+            for code in [c for c in LEAGUE_CODES + CUP_CODES if c in out["competitions"] or not out["competitions"]]:
+                try:
+                    ingest(p.competition_matches(code, ttl=3 * 3600))
+                except Restricted as e:
+                    out["restricted"].append(str(e))
+                if code in LEAGUE_CODES or code == "CL":
+                    try:
+                        rows, season, url, ts = p.standings(code)
+                        out.setdefault("standings", {})[code] = _store_standings(code, rows, season, ts)
+                    except Restricted as e:
+                        out["restricted"].append(str(e))
+        elif mode == "backfill":
+            with session_scope() as s:
+                ds = s.query(DataSource).filter_by(key=p.key).one()
+                done = set((ds.quota_info or {}).get("backfilled", []))
+            for code in CUP_CODES[:1]:  # Champions League: no other free history source
+                for season in FREE_SEASONS[:-1]:
+                    tag = f"{code}:{season}"
+                    if tag in done:
+                        continue
+                    try:
+                        ingest(p.competition_matches(code, season, ttl=30 * 24 * 3600))
+                        done.add(tag)
+                    except Restricted as e:
+                        out["restricted"].append(str(e))
+            out["backfilled"] = sorted(done)
+    except AuthError as e:
+        p.mark_error(str(e), requests=p.requests)
+        out["errors"].append(str(e))
+        return out
+    except ProviderError as e:
+        out["errors"].append(str(e))
+    quota = p.quota() | {"last_sync": utcnow().isoformat(), "last_sync_mode": mode,
+                         "scores": "delayed on the free plan — never displayed as live"}
+    if mode == "backfill":
+        quota["backfilled"] = out.get("backfilled", [])
+    if out["errors"] and not out["records"]:
+        p.mark_error("; ".join(out["errors"])[:900], requests=p.requests)
+    else:
+        p.mark_success(records=out["records"], requests=p.requests, quota=quota)
+    out["ingest"] = stats_total
+    out["requests"] = p.requests
+    return out
+
+
+def _store_standings(fd_code: str, rows: list[dict], season: str, ts) -> int:
+    from sqlalchemy import select
+    from sqlalchemy.dialects.sqlite import insert as sqlite_insert
+
+    from .db import Competition, Fixture, StandingSnapshot, session_scope
+    from .providers.football_data_org import FootballDataOrg
+    from .teamnames import TeamResolver
+
+    comp_code = FootballDataOrg().code_map().get(fd_code)
+    n = 0
+    with session_scope() as s:
+        comp = s.scalars(select(Competition).where(Competition.code == comp_code)).first()
+        if comp is None:
+            return 0
+        team_ids = {t for pair in s.execute(select(Fixture.home_team_id, Fixture.away_team_id)
+                                             .where(Fixture.competition_id == comp.id)).all() for t in pair}
+        res = TeamResolver(s)
+        for r in rows:
+            tid, _ = res.resolve(r["team"], "football_data_org", "", list(team_ids) or None, create=False)
+            if tid is None and r.get("team_full"):
+                tid, _ = res.resolve(r["team_full"], "football_data_org", "", list(team_ids) or None, create=False)
+            vals = dict(competition_id=comp.id, season=season, snapshot_date=ts.strftime("%Y-%m-%d"), team_id=tid,
+                        team_name=r["team"] + (f" ({r['group']})" if r.get("group") else ""), position=r["position"],
+                        played=r["played"], won=r["won"], draw=r["draw"], lost=r["lost"], goals_for=r["goals_for"],
+                        goals_against=r["goals_against"], points=r["points"], form=r.get("form"),
+                        source="football_data_org", retrieved_at=ts)
+            n += s.execute(sqlite_insert(StandingSnapshot).values(**vals).on_conflict_do_nothing()).rowcount
+    return n
