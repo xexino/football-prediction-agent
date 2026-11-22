@@ -115,7 +115,7 @@ class Provider:
                     r = c.get(url, params=params)
                 if r.status_code == 429:
                     retry_after = float(r.headers.get("Retry-After", "0") or 0)
-                    time.sleep(min(max(retry_after, 2 ** attempt * 2), 60))
+                    time.sleep(min(max(retry_after, 2 ** attempt * 5), 30))
                     last_exc = ProviderError(f"rate limited (429) at {self.redact(str(r.url))}")
                     continue
                 if r.status_code in (401, 403):

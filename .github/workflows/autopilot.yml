@@ -80,8 +80,10 @@ jobs:
         if: always()
         with: { name: "fil-db-${{ github.run_id }}", path: data/fil.db.gz, retention-days: 90, if-no-files-found: ignore }
       - name: Export static dashboard
+        if: always()
         run: cd backend && python -m fil export-static ../site
       - name: Publish dashboard to gh-pages (served at https://<owner>.github.io/<repo>/)
+        if: always()
         run: |
           cd site && touch .nojekyll
           git init -q -b gh-pages && git add -A
