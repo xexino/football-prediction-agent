@@ -112,7 +112,7 @@ export default function Upcoming() {
                       <td className="num">{p ? `${num(p.exp_home_goals, 1)}–${num(p.exp_away_goals, 1)}` : "—"}</td>
                       <td><Quality q={p?.data_quality} /></td>
                       <td className="mono">{best ? <span className={best.qualifies ? "pos" : "muted"}>{selLabel(best.market, best.selection, best.line)} {spct(best.ev_conservative)}</span> : "—"}</td>
-                      <td><Decision d={p?.decision} /></td>
+                      <td>{p ? <Decision d={p.decision} /> : new Date(f.kickoff_utc) <= new Date() ? <span className="badge b-pending">STARTED · AWAITING RESULT</span> : <Decision d={null} />}</td>
                     </tr>
                     {open === f.id && <tr className="detail"><td colSpan={9}><Detail f={f} /></td></tr>}
                   </React.Fragment>

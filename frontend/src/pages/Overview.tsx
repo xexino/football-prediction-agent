@@ -37,7 +37,7 @@ export default function Overview() {
                 <XAxis dataKey="t" stroke="#4f5e6d" fontSize={10} />
                 <YAxis stroke="#4f5e6d" fontSize={10} domain={["auto", "auto"]} />
                 <Tooltip {...tooltipStyle} />
-                <Area type="stepAfter" dataKey="bankroll" stroke="#22c55e" fill="url(#g)" strokeWidth={2} />
+                <Area isAnimationActive={false} type="stepAfter" dataKey="bankroll" stroke="#22c55e" fill="url(#g)" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           ) : (

@@ -67,8 +67,32 @@ class Ingestor:
         primary = self.source in PRIMARY_SOURCES
         national = BY_CODE[rec.comp_code].get("kind") == "international"
         cands = None if primary else self._candidates(comp_id)
-        h, hc = self.resolver.resolve(rec.home, self.source, rec.country, cands, is_national=national)
-        a, ac = self.resolver.resolve(rec.away, self.source, rec.country, cands, is_national=national)
+        if primary:
+            h, hc = self.resolver.resolve(rec.home, self.source, rec.country, cands, is_national=national)
+            a, ac = self.resolver.resolve(rec.away, self.source, rec.country, cands, is_national=national)
+        else:
+            h, hc = self.resolver.resolve(rec.home, self.source, rec.country, cands, create=False)
+            a, ac = self.resolver.resolve(rec.away, self.source, rec.country, cands, create=False)
+            # anchor matching: one team + kickoff identifies the fixture, so the other name is an alias
+            if (h is None) != (a is None):
+                known = h if h is not None else a
+                hits = [f for (fh, fa), fl in self._index(comp_id).items() for f in fl
+                        if (fh == known if h is not None else fa == known)
+                        and abs(f.kickoff_utc - rec.kickoff_utc) <= DUP_WINDOW]
+                if len(hits) == 1:
+                    from .teamnames import normalize
+
+                    other = hits[0].away_team_id if h is not None else hits[0].home_team_id
+                    self.resolver._add_alias(normalize(rec.away if h is not None else rec.home), self.source, other, 0.85)
+                    self.resolver._cache.pop((self.source, f"{rec.country}|{rec.away if h is not None else rec.home}"), None)
+                    if h is None:
+                        h, hc = other, 0.85
+                    else:
+                        a, ac = other, 0.85
+            if h is None:
+                h, hc = self.resolver.resolve(rec.home, self.source, rec.country, cands, is_national=national)
+            if a is None:
+                a, ac = self.resolver.resolve(rec.away, self.source, rec.country, cands, is_national=national)
         if h is None or a is None or h == a:
             self.stats["unresolved"] += 1
             return None
@@ -180,3 +204,50 @@ def ingest_records(records: list[MatchRecord], source: str) -> dict:
         for rec in sorted(records, key=lambda r: r.kickoff_utc):
             ing.add(rec)
         return dict(ing.stats)
+
+
+def merge_duplicates() -> int:
+    """Merge fixtures created by a secondary source that duplicate a primary-source fixture
+    (same competition, same slot for one team, kickoff within ±36h). Only fixtures without
+    predictions, bets or odds are merged, so no audit record is touched."""
+    from .db import Prediction, TeamAlias, VirtualBet
+    from .teamnames import normalize
+
+    merged = 0
+    with session_scope() as s:
+        dups = s.scalars(select(Fixture).where(Fixture.first_seen_source.not_in(PRIMARY_SOURCES))).all()
+        for d in dups:
+            if (s.scalar(select(Prediction.id).where(Prediction.fixture_id == d.id).limit(1)) or
+                    s.scalar(select(VirtualBet.id).where(VirtualBet.fixture_id == d.id).limit(1)) or
+                    s.scalar(select(OddsObservation.id).where(OddsObservation.fixture_id == d.id).limit(1))):
+                continue
+            cands = s.scalars(select(Fixture).where(
+                Fixture.competition_id == d.competition_id, Fixture.id != d.id,
+                Fixture.first_seen_source.in_(PRIMARY_SOURCES),
+                Fixture.kickoff_utc.between(d.kickoff_utc - DUP_WINDOW, d.kickoff_utc + DUP_WINDOW),
+                ((Fixture.home_team_id == d.home_team_id) | (Fixture.away_team_id == d.away_team_id)))).all()
+            if len(cands) != 1:
+                continue
+            p = cands[0]
+            for wrong, right in ((d.home_team_id, p.home_team_id), (d.away_team_id, p.away_team_id)):
+                if wrong != right:
+                    from .db import Team
+
+                    t = s.get(Team, wrong)
+                    with s.no_autoflush:
+                        s.query(TeamAlias).filter(TeamAlias.team_id == wrong, TeamAlias.source == d.first_seen_source).delete()
+                        exists = s.scalar(select(TeamAlias.id).where(TeamAlias.alias_norm == normalize(t.name),
+                                                                     TeamAlias.source == d.first_seen_source,
+                                                                     TeamAlias.team_id == right))
+                    if not exists:
+                        s.add(TeamAlias(alias_norm=normalize(t.name), source=d.first_seen_source, team_id=right, confidence=0.85))
+            for o in s.scalars(select(ResultObservation).where(ResultObservation.fixture_id == d.id)):
+                o.fixture_id = p.id
+            p.external_ids = {**(p.external_ids or {}), **(d.external_ids or {})}
+            s.delete(d)
+            s.flush()
+            reconcile(s, p)
+            merged += 1
+    if merged:
+        log("INFO", "ingest", f"merged {merged} duplicate fixtures from secondary sources")
+    return merged

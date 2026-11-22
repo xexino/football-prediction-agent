@@ -95,6 +95,9 @@ def collect_fixtures() -> dict:
     else:
         tsdb.mark_success(records=n, requests=3 * sum(1 for c in COMPETITIONS if "tsdb" in c["sources"]))
     out["thesportsdb"] = {"records": n, "errors": errs}
+    from .ingest import merge_duplicates
+
+    out["merged_duplicates"] = merge_duplicates()
 
     fdorg = provider("football_data_org")
     if fdorg.configured:

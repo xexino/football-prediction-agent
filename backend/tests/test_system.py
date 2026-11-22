@@ -352,3 +352,43 @@ def test_api_endpoints(db):
         pid = c.get("/api/predictions").json()["items"][0]["id"]
         assert c.get(f"/api/predictions/{pid}").status_code == 200
         assert c.post("/api/admin/run/daily").status_code == 403  # admin disabled without token
+        from fil.config import settings
+        settings.admin_token = "s3cret"
+        try:
+            assert c.post("/api/admin/run/daily", headers={"X-Admin-Token": "wrong"}).status_code == 401
+            assert c.post("/api/admin/run/nope", headers={"X-Admin-Token": "s3cret"}).status_code == 404
+        finally:
+            settings.admin_token = ""
+
+
+def test_anchor_matching_merges_unrecognised_name(db):
+    ko = utcnow() + timedelta(days=2)
+    ingest_records([rec("Getafe", "Ath Madrid", ko)], "football_data_uk")
+    ingest_records([rec("Getafe", "Atlético Madrid", ko, status="finished", hg=0, ag=1)], "thesportsdb")
+    with session_scope() as s:
+        fx = s.scalars(select(Fixture)).all()
+        assert len(fx) == 1 and fx[0].home_goals == 0 and fx[0].away_goals == 1
+
+
+def test_merge_duplicates_cleans_existing(db):
+    from fil.ingest import merge_duplicates
+
+    ko = utcnow() + timedelta(days=2)
+    ingest_records([rec("Getafe", "Ath Madrid", ko)], "football_data_uk")
+    # simulate a legacy duplicate created before anchor matching existed
+    with session_scope() as s:
+        from fil.db import Competition
+        comp = s.scalars(select(Competition).where(Competition.code == "ENG1")).one()
+        getafe = s.scalars(select(Team).where(Team.name == "Getafe")).one()
+        t = Team(name="Atlético Madrid", country="England")
+        s.add(t)
+        s.flush()
+        s.add(Fixture(competition_id=comp.id, home_team_id=getafe.id, away_team_id=t.id, kickoff_utc=ko,
+                      match_date=ko.strftime("%Y-%m-%d"), first_seen_source="thesportsdb"))
+        from fil.db import TeamAlias
+        from fil.teamnames import normalize
+        s.add(TeamAlias(alias_norm=normalize("Atlético Madrid"), source="thesportsdb",
+                        team_id=s.scalars(select(Team).where(Team.name == "Ath Madrid")).one().id))  # alias already learnt
+    assert merge_duplicates() == 1
+    with session_scope() as s:
+        assert len(s.scalars(select(Fixture)).all()) == 1
