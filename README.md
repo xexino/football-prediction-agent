@@ -73,10 +73,10 @@ Value and risk thresholds live in `backend/fil/config.py` (`ValueRules`, `RiskRu
 ## Autonomous operation on GitHub (free)
 
 `.github/workflows/autopilot.yml` runs the daily cycle at 05:10 UTC, plus fixtures/odds and results every 3 hours.
-It keeps the database as the `db-latest` release asset and publishes a read-only dashboard to GitHub Pages.
+It keeps the database as the `db-latest` release asset and publishes a read-only dashboard to <https://xexino.github.io/football-prediction-agent/> (branch `gh-pages`).
 
 **One-time setup:**
-1. Settings → Pages → Source: **GitHub Actions**.
+1. Nothing for Pages: the workflow pushes the dashboard to the `gh-pages` branch (Settings → Pages should show "Deploy from branch: gh-pages").
 2. Settings → Actions → General: allow workflows to run.
 3. Optional: add the API keys above as repository secrets.
 

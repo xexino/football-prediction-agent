@@ -1,7 +1,7 @@
 # Autonomous operation on free GitHub-hosted runners.
 # The SQLite database is persisted between runs as the asset `fil.db.gz` of the release tagged `db-latest`
-# (plus a 90-day workflow artifact per run). A read-only snapshot of the dashboard is deployed to GitHub Pages.
-# One-time setup by the repo owner: Settings → Pages → Source: "GitHub Actions". Optional secrets:
+# (plus a 90-day workflow artifact per run). A read-only snapshot of the dashboard is pushed to the
+# `gh-pages` branch, which GitHub Pages serves. Optional secrets:
 # FOOTBALL_DATA_ORG_KEY, ODDS_API_KEY, API_FOOTBALL_KEY.
 name: Autopilot
 on:
@@ -15,8 +15,6 @@ on:
         default: daily
 permissions:
   contents: write
-  pages: write
-  id-token: write
 concurrency:
   group: autopilot
   cancel-in-progress: false
@@ -83,13 +81,11 @@ jobs:
         with: { name: "fil-db-${{ github.run_id }}", path: data/fil.db.gz, retention-days: 90, if-no-files-found: ignore }
       - name: Export static dashboard
         run: cd backend && python -m fil export-static ../site
-      - uses: actions/upload-pages-artifact@v3
-        with: { path: site }
-  deploy:
-    needs: run
-    runs-on: ubuntu-latest
-    continue-on-error: true   # Pages may not be enabled yet
-    environment: { name: github-pages, url: "${{ steps.deployment.outputs.page_url }}" }
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+      - name: Publish dashboard to gh-pages (served at https://<owner>.github.io/<repo>/)
+        run: |
+          cd site && touch .nojekyll
+          git init -q -b gh-pages && git add -A
+          git -c user.name="fil-autopilot" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
+            commit -qm "Dashboard snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
+          # generated branch: replaced on every run so the repository does not grow
+          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages
