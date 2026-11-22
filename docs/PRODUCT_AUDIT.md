@@ -12,6 +12,7 @@ README claims were not taken on trust.
 | Production DB | `PRAGMA quick_check` ok. 56,141 fixtures, 347,658 odds snapshots, 28 predictions (all NO BET), 0 bets, 6 job runs (2 errors) |
 | Dashboard | https://xexino.github.io/football-prediction-agent/ — **static snapshot**, refreshed by each autopilot run |
 | Tests at audit start | 50 backend tests passing; Playwright smoke test passing |
+| After this release | 70 backend tests, CI green on PR #3, Autopilot run #3 (daily) success, live health HEALTHY on all components |
 
 ## 2. Architecture map
 

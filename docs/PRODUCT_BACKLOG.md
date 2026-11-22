@@ -13,7 +13,7 @@ verification column was actually performed. Updated 2026-11-22.
 | A-4 | Per-run operational report | Visibility | A-1 | DONE | report stored + Actions step summary | live runs #7–#9 on prod copy |
 | A-5 | Health model HEALTHY/WARNING/FAILED/STALE/UNKNOWN | "exit 0" ≠ healthy | A-1 | DONE | freshness-based states, overall = worst critical | `test_health_states`, `test_health_collection_failed_when_provider_erroring` |
 | A-6 | Stale snapshot banner on static dashboard | Never show stale data as current | A-5 | DONE | banner if export > 8h old or health FAILED/STALE | build + Playwright |
-| J-1 | Fail-closed DB restore in Actions | Fallback could overwrite newer DB | — | DONE | run fails if `db-latest` exists but download fails | workflow code; first scheduled run pending |
+| J-1 | Fail-closed DB restore in Actions | Fallback could overwrite newer DB | — | DONE | run fails if `db-latest` exists but download fails | Autopilot run #3 restored from `db-latest`, guard OK, persisted, dated backup `fil-20261122.db.gz` + `manifest.json` published |
 | J-2 | Manifest guard before persisting DB | Prevent ledger loss | J-1 | DONE | refuse if immutable tables shrink or integrity fails | `test_guard_refuses_shrinking_ledger` |
 | J-3 | Integrity checks (quick_check, FK, triggers, bankroll chain, settlements, duplicates, scores) | Corruption detection | — | DONE | `python -m fil integrity` exits 1 on problems | `test_integrity_detects_broken_bankroll_chain`; prod DB ok |
 | J-4 | Verified backups + restore + dated backup release | Backups must be restorable | J-3 | DONE | backup restored into temp DB and checked; restore re-checks | `test_backup_and_restore`, `test_backup_verification_catches_corruption` |
