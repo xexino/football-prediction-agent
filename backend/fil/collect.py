@@ -244,12 +244,18 @@ def _store_standings(fd_code: str, rows: list[dict], season: str, ts) -> int:
         team_ids = {t for pair in s.execute(select(Fixture.home_team_id, Fixture.away_team_id)
                                              .where(Fixture.competition_id == comp.id)).all() for t in pair}
         res = TeamResolver(s)
+        # one snapshot per day: a re-run on the same day replaces that day's rows (earlier days are kept)
+        s.query(StandingSnapshot).filter(StandingSnapshot.competition_id == comp.id, StandingSnapshot.season == season,
+                                         StandingSnapshot.snapshot_date == ts.strftime("%Y-%m-%d"),
+                                         StandingSnapshot.source == "football_data_org").delete()
         for r in rows:
             tid, _ = res.resolve(r["team"], "football_data_org", "", list(team_ids) or None, create=False)
             if tid is None and r.get("team_full"):
                 tid, _ = res.resolve(r["team_full"], "football_data_org", "", list(team_ids) or None, create=False)
             vals = dict(competition_id=comp.id, season=season, snapshot_date=ts.strftime("%Y-%m-%d"), team_id=tid,
-                        team_name=r["team"] + (f" ({r['group']})" if r.get("group") else ""), position=r["position"],
+                        team_name=r["team"] + (f" ({r['group'].replace('_', ' ').title()})"
+                                               if (r.get("group") or "").upper().startswith("GROUP") else ""),
+                        position=r["position"],
                         played=r["played"], won=r["won"], draw=r["draw"], lost=r["lost"], goals_for=r["goals_for"],
                         goals_against=r["goals_against"], points=r["points"], form=r.get("form"),
                         source="football_data_org", retrieved_at=ts)
