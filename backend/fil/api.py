@@ -145,7 +145,7 @@ def overview():
         last_data = max((d.last_success_at for d in ds if d.last_success_at), default=None)
         mv = s.scalars(select(ModelVersion).where(ModelVersion.active.is_(True)).order_by(ModelVersion.id.desc())).first()
         n_preds = s.scalar(select(func.count(Prediction.id)))
-        last_daily = s.scalars(select(JobRun).where(JobRun.job == "daily").order_by(JobRun.id.desc())).first()
+        last_daily = s.scalars(select(JobRun).where(JobRun.job.in_(["daily", "bootstrap"])).order_by(JobRun.id.desc())).first()
         return {
             "bankroll": {k: sm[k] for k in ("starting_bankroll", "current_bankroll", "equity", "pending_exposure",
                                             "profit", "roi", "bets", "settled", "pending", "won", "lost", "void",

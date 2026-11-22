@@ -12,6 +12,9 @@ os.environ["FIL_DB_PATH"] = str(Path(_tmp) / "default.db")
 os.environ["FIL_CACHE_DIR"] = str(Path(_tmp) / "cache")
 os.environ["FIL_BACKUP_DIR"] = str(Path(_tmp) / "backups")
 os.environ["FIL_SCHEDULER"] = "0"
+os.environ["FIL_ADMIN_TOKEN"] = ""  # .env must not leak into tests (dotenv never overrides)
+for _k in ("FOOTBALL_DATA_ORG_KEY", "ODDS_API_KEY", "API_FOOTBALL_KEY"):
+    os.environ[_k] = ""
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fil import db as dbmod  # noqa: E402

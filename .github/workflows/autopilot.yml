@@ -45,6 +45,8 @@ jobs:
           mkdir -p data
           if gh release download db-latest -p fil.db.gz -D data --clobber; then
             gunzip -f data/fil.db.gz && echo "found=true" >> "$GITHUB_OUTPUT"
+          elif [ -f data/snapshot/fil.db.gz ]; then
+            gunzip -c data/snapshot/fil.db.gz > data/fil.db && echo "found=true" >> "$GITHUB_OUTPUT"
           else
             echo "found=false" >> "$GITHUB_OUTPUT"
           fi

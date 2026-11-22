@@ -21,7 +21,7 @@ def to_utc_naive(dt: datetime, assume_tz=UTC) -> datetime:
 
 def local_to_utc(date_str: str, time_str: str | None, tz=LONDON, date_fmt: str = "%d/%m/%Y") -> datetime:
     """Convert a provider's local date/time (default UK time, as used by football-data.co.uk) to naive UTC."""
-    time_str = (time_str or "").strip() or "15:00"
+    time_str = (time_str.strip() if isinstance(time_str, str) else "") or "15:00"  # NaN/None -> default
     fmt = date_fmt + " %H:%M"
     try:
         dt = datetime.strptime(f"{date_str.strip()} {time_str}", fmt)

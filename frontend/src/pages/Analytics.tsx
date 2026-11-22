@@ -24,7 +24,7 @@ function Calib({ pts, title }: { pts: any[]; title: string }) {
         <ZAxis type="number" dataKey="n" range={[30, 260]} />
         <ReferenceLine segment={[{ x: 0, y: 0 }, { x: 1, y: 1 }]} stroke="#4f5e6d" strokeDasharray="4 4" />
         <Tooltip {...tooltipStyle} formatter={(v: any) => (typeof v === "number" && v <= 1 ? pct(v) : v)} />
-        <Scatter name={title} data={pts} fill="#22d3ee" />
+        <Scatter isAnimationActive={false} name={title} data={pts} fill="#22d3ee" />
       </ScatterChart>
     </ResponsiveContainer>
   );
@@ -52,7 +52,7 @@ export default function Analytics() {
       <div className="grid g2" style={{ marginTop: 12 }}>
         <Card title="Bankroll history & cumulative P/L (live)">
           {curve.length > 1 ? (
-            <ResponsiveContainer width="100%" height={240}><ComposedChart data={curve}><CartesianGrid stroke="#1a2430" vertical={false} /><XAxis dataKey="t" stroke="#4f5e6d" fontSize={10} /><YAxis yAxisId="a" stroke="#4f5e6d" fontSize={10} domain={["auto", "auto"]} /><YAxis yAxisId="b" orientation="right" stroke="#4f5e6d" fontSize={10} /><Tooltip {...tooltipStyle} /><Legend wrapperStyle={{ fontSize: 11 }} /><Area yAxisId="a" type="stepAfter" dataKey="bankroll" stroke="#22c55e" fill="#22c55e22" /><Line yAxisId="b" type="stepAfter" dataKey="cum" stroke="#4ea1ff" dot={false} name="cumulative P/L" /></ComposedChart></ResponsiveContainer>
+            <ResponsiveContainer width="100%" height={240}><ComposedChart data={curve}><CartesianGrid stroke="#1a2430" vertical={false} /><XAxis dataKey="t" stroke="#4f5e6d" fontSize={10} /><YAxis yAxisId="a" stroke="#4f5e6d" fontSize={10} domain={["auto", "auto"]} /><YAxis yAxisId="b" orientation="right" stroke="#4f5e6d" fontSize={10} /><Tooltip {...tooltipStyle} /><Legend wrapperStyle={{ fontSize: 11 }} /><Area isAnimationActive={false} yAxisId="a" type="stepAfter" dataKey="bankroll" stroke="#22c55e" fill="#22c55e22" /><Line isAnimationActive={false} yAxisId="b" type="stepAfter" dataKey="cum" stroke="#4ea1ff" dot={false} name="cumulative P/L" /></ComposedChart></ResponsiveContainer>
           ) : <div className="empty">No settled bets yet. Live performance appears as verified results settle bets.</div>}
         </Card>
         <Card title="Live calibration (original predictions, 1X2)"><Calib pts={L.prediction_metrics.calibration} title="live" /></Card>
@@ -69,7 +69,7 @@ export default function Analytics() {
           <div className="grid g3">
             <Card title="Model comparison (lower is better)" className="span2">
               <ResponsiveContainer width="100%" height={220}>
-                <BarChart data={metricRows}><CartesianGrid stroke="#1a2430" vertical={false} /><XAxis dataKey="model" stroke="#4f5e6d" fontSize={10} /><YAxis stroke="#4f5e6d" fontSize={10} domain={[0.9, "auto"]} /><Tooltip {...tooltipStyle} /><Bar dataKey="log_loss" fill="#4ea1ff" name="log loss" /></BarChart>
+                <BarChart data={metricRows}><CartesianGrid stroke="#1a2430" vertical={false} /><XAxis dataKey="model" stroke="#4f5e6d" fontSize={10} /><YAxis stroke="#4f5e6d" fontSize={10} domain={[0.9, "auto"]} /><Tooltip {...tooltipStyle} /><Bar isAnimationActive={false} dataKey="log_loss" fill="#4ea1ff" name="log loss" /></BarChart>
               </ResponsiveContainer>
               <table><thead><tr><th>Model</th><th className="num">n</th><th className="num">Log loss</th><th className="num">Brier</th><th className="num">Accuracy</th></tr></thead>
                 <tbody>{metricRows.map((r: any) => <tr key={r.model}><td>{r.model}</td><td className="num">{r.n}</td><td className="num">{num(r.log_loss, 4)}</td><td className="num">{num(r.brier, 4)}</td><td className="num">{pct(r.accuracy)}</td></tr>)}</tbody></table>
@@ -86,7 +86,7 @@ export default function Analytics() {
               <p className="muted" style={{ fontSize: 11 }}>{B.note}</p>
             </Card>
             <Card title="Backtest cumulative P/L (units)" className="span2">
-              {btCurve.length ? <ResponsiveContainer width="100%" height={200}><LineChart data={btCurve}><CartesianGrid stroke="#1a2430" vertical={false} /><XAxis dataKey="i" hide /><YAxis stroke="#4f5e6d" fontSize={10} /><ReferenceLine y={0} stroke="#4f5e6d" /><Tooltip {...tooltipStyle} /><Line dataKey="pnl" stroke="#f5b942" dot={false} strokeWidth={2} /></LineChart></ResponsiveContainer> : <div className="empty">The rules selected no bets in the backtest period.</div>}
+              {btCurve.length ? <ResponsiveContainer width="100%" height={200}><LineChart data={btCurve}><CartesianGrid stroke="#1a2430" vertical={false} /><XAxis dataKey="i" hide /><YAxis stroke="#4f5e6d" fontSize={10} /><ReferenceLine y={0} stroke="#4f5e6d" /><Tooltip {...tooltipStyle} /><Line isAnimationActive={false} dataKey="pnl" stroke="#f5b942" dot={false} strokeWidth={2} /></LineChart></ResponsiveContainer> : <div className="empty">The rules selected no bets in the backtest period.</div>}
             </Card>
           </div>
           <div className="grid g2" style={{ marginTop: 12 }}>
@@ -95,7 +95,7 @@ export default function Analytics() {
           </div>
           {blend.length > 0 && (
             <Card title="How much does the model add to the market? (log loss of w·model + (1−w)·market)">
-              <ResponsiveContainer width="100%" height={200}><LineChart data={blend}><CartesianGrid stroke="#1a2430" /><XAxis dataKey="w" stroke="#4f5e6d" fontSize={10} /><YAxis stroke="#4f5e6d" fontSize={10} domain={["auto", "auto"]} /><Tooltip {...tooltipStyle} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line dataKey="train" stroke="#4ea1ff" name="first half (fit)" /><Line dataKey="test" stroke="#22c55e" name="second half (check)" /></LineChart></ResponsiveContainer>
+              <ResponsiveContainer width="100%" height={200}><LineChart data={blend}><CartesianGrid stroke="#1a2430" /><XAxis dataKey="w" stroke="#4f5e6d" fontSize={10} /><YAxis stroke="#4f5e6d" fontSize={10} domain={["auto", "auto"]} /><Tooltip {...tooltipStyle} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line isAnimationActive={false} dataKey="train" stroke="#4ea1ff" name="first half (fit)" /><Line isAnimationActive={false} dataKey="test" stroke="#22c55e" name="second half (check)" /></LineChart></ResponsiveContainer>
               <p className="muted" style={{ fontSize: 11 }}>{B.market_blend_scan.note} Optimal w on first half: {B.market_blend_scan.optimal_w_first_half}. The value engine's market-shrink weight is set from this, not from betting profit.</p>
             </Card>
           )}
