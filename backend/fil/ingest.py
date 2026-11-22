@@ -39,6 +39,24 @@ def odds_hash(bookmaker: str, kind: str, m: dict) -> str:
     return hashlib.sha1(payload.encode()).hexdigest()
 
 
+def validate(rec: MatchRecord) -> str | None:
+    """Reject records that cannot be right (never 'repair' them by guessing)."""
+    now = utcnow()
+    if not rec.home or not rec.away or rec.home.strip().lower() == rec.away.strip().lower():
+        return "missing or identical team names"
+    if rec.kickoff_utc.year < 1990 or rec.kickoff_utc > now + timedelta(days=400):
+        return "implausible kickoff date"
+    if rec.status == "finished":
+        for g in (rec.home_goals, rec.away_goals):
+            if g is None or g < 0 or g > 20:
+                return f"invalid final score {rec.home_goals}-{rec.away_goals}"
+        if rec.kickoff_utc > now + timedelta(hours=1):
+            return "result reported for a match that has not started"
+        if rec.ht_home is not None and rec.ht_away is not None and (rec.ht_home > rec.home_goals or rec.ht_away > rec.away_goals):
+            return "half-time score exceeds full-time score"
+    return None
+
+
 class Ingestor:
     def __init__(self, s: Session, source: str):
         self.s, self.source = s, source
@@ -63,6 +81,12 @@ class Ingestor:
     def add(self, rec: MatchRecord) -> Fixture | None:
         comp_id = self.comp_ids.get(rec.comp_code)
         if comp_id is None:
+            return None
+        problem = validate(rec)
+        if problem:
+            self.stats["invalid_records"] += 1
+            if self.stats["invalid_records"] <= 5:
+                log("WARNING", "ingest", f"{self.source}: rejected {rec.home} v {rec.away} {rec.kickoff_utc:%Y-%m-%d}: {problem}")
             return None
         primary = self.source in PRIMARY_SOURCES
         national = BY_CODE[rec.comp_code].get("kind") == "international"

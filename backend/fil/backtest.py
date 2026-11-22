@@ -48,6 +48,32 @@ def _calibration(rows, bins=10):
     return out
 
 
+def _ece(rows, bins=10):
+    """Expected calibration error over all 1X2 outcome probabilities."""
+    probs = np.array([p[k] for p, o in rows for k in range(3)])
+    hits = np.array([1.0 if o == k else 0.0 for p, o in rows for k in range(3)])
+    if not len(probs):
+        return None
+    idx = np.minimum((probs * bins).astype(int), bins - 1)
+    ece = 0.0
+    for b in range(bins):
+        m = idx == b
+        if m.any():
+            ece += m.mean() * abs(probs[m].mean() - hits[m].mean())
+    return round(float(ece), 4)
+
+
+def _bootstrap_roi(profits, n=2000, seed=11):
+    """95% bootstrap interval of ROI per unit staked (flat 1u stakes)."""
+    if len(profits) < 10:
+        return None
+    rng = np.random.default_rng(seed)
+    arr = np.array(profits)
+    sims = rng.choice(arr, size=(n, len(arr)), replace=True).mean(axis=1)
+    lo, hi = np.percentile(sims, [2.5, 97.5])
+    return [round(float(lo), 4), round(float(hi), 4)]
+
+
 def _drawdown(pnl):
     peak, dd, cum = 0.0, 0.0, 0.0
     for x in pnl:
@@ -55,6 +81,21 @@ def _drawdown(pnl):
         peak = max(peak, cum)
         dd = max(dd, peak - cum)
     return round(dd, 2)
+
+
+def _season(d):
+    return f"{d.year}/{(d.year + 1) % 100:02d}" if d.month >= 7 else f"{d.year - 1}/{d.year % 100:02d}"
+
+
+def _by_prob_range(rows):
+    """Reliability of the ensemble's favourite probability, bucketed."""
+    out = {}
+    for lo, hi in ((0.0, 0.4), (0.4, 0.5), (0.5, 0.6), (0.6, 0.7), (0.7, 1.01)):
+        sel = [(p, o) for p, o in rows if lo <= max(p) < hi]
+        if sel:
+            out[f"{lo:.1f}-{min(hi, 1):.1f}"] = {"n": len(sel), "mean_prob": round(float(np.mean([max(p) for p, _ in sel])), 4),
+                                               "hit_rate": round(float(np.mean([int(np.argmax(p) == o) for p, o in sel])), 4)}
+    return out
 
 
 def run_backtest(start: datetime | None = None, end: datetime | None = None, step_days: int = 14,
@@ -84,6 +125,7 @@ def run_backtest(start: datetime | None = None, end: datetime | None = None, ste
     bets = []
     weights_grid = defaultdict(list)
     blend_rows = []
+    dates = []
     prev = None
     t = start
     steps = 0
@@ -107,6 +149,7 @@ def run_backtest(start: datetime | None = None, end: datetime | None = None, ste
                 ref = next((snaps[b] for b in ("BFE", "PS", "Avg") if b in snaps and snaps[b].home and snaps[b].draw), None)
                 if ref is not None:
                     rows["market"] = devig([ref.home, ref.draw, ref.away])
+                dates.append(m["kickoff"])
                 for k, v in rows.items():
                     res[k].append((v, o))
                     by_comp[m["comp"]][k].append((v, o))
@@ -150,6 +193,7 @@ def run_backtest(start: datetime | None = None, end: datetime | None = None, ste
         pnl = [b["profit"] for b in bs]
         clv = [b["clv"] for b in bs if b["clv"] is not None]
         return {"bets": len(bs), "profit": round(sum(pnl), 2), "roi": round(sum(pnl) / len(bs), 4),
+                "roi_95ci": _bootstrap_roi(pnl),
                 "win_rate": round(sum(1 for b in bs if b["profit"] > 0) / len(bs), 4),
                 "max_drawdown": _drawdown(pnl), "avg_clv": round(float(np.mean(clv)), 4) if clv else None,
                 "avg_price": round(float(np.mean([b["price"] for b in bs])), 3)}
@@ -163,12 +207,27 @@ def run_backtest(start: datetime | None = None, end: datetime | None = None, ste
             blend[name] = {f"{w:.2f}": _metrics([([w * a + (1 - w) * b for a, b in zip(e, mk)], o) for _, e, mk, o in part])["log_loss"]
                            for w in np.linspace(0, 1, 11)}
         blend["optimal_w_first_half"] = float(min(blend["first_half"], key=blend["first_half"].get))
+        # power calibration p_k^t / sum: fitted on the first half, judged on the second half only
+        from .models.calibration import apply_power, fit_power
+
+        first = [(e, o) for _, e, _, o in blend_rows[:half]]
+        second = [(e, o) for _, e, _, o in blend_rows[half:]]
+        t = fit_power(first)
+        cal2 = [(apply_power(e, t), o) for e, o in second]
+        blend_cal = {"power_t_fitted_on_first_half": round(t, 4),
+                     "second_half_raw": _metrics(second) | {"ece": _ece(second)},
+                     "second_half_calibrated": _metrics(cal2) | {"ece": _ece(cal2)}}
+        blend_cal["improves_out_of_sample"] = blend_cal["second_half_calibrated"]["log_loss"] < blend_cal["second_half_raw"]["log_loss"]
+        blend["calibration_check"] = blend_cal
         blend["note"] = "w = weight on the model in w*model + (1-w)*market; 0 means the market already contains all model information."
     odds_ranges = [(1.5, 2.0), (2.0, 3.0), (3.0, 5.01)]
     out = {
         "model": f"{MODEL_NAME} {MODEL_VERSION}", "start": start.isoformat(), "end": end.isoformat(),
         "step_days": step_days, "competitions": comps,
-        "metrics": {k: _metrics(v) for k, v in res.items()},
+        "metrics": {k: (_metrics(v) or {}) | {"ece": _ece(v)} for k, v in res.items()},
+        "by_probability_range": _by_prob_range(res["ensemble"]),
+        "by_season": {season: _metrics([r for r, d in zip(res["ensemble"], dates) if _season(d) == season])
+                      for season in sorted({_season(d) for d in dates})},
         "by_competition": {c: {k: _metrics(v) for k, v in d.items()} for c, d in by_comp.items()},
         "calibration": {"ensemble": _calibration(res["ensemble"]), "market": _calibration(res.get("market", []))},
         "ensemble_weight_scan": {str(w): _metrics(v)["log_loss"] for w, v in weights_grid.items() if v},

@@ -72,11 +72,25 @@ def _odds_summary(s, fixture_id: int, now) -> dict:
     for o in rows:
         latest[o.bookmaker] = o
     out = {}
+    probs = {b: devig([o.home, o.draw, o.away]) for b, o in latest.items() if o.home and o.draw and o.away and b != "Max"}
+    med = None
+    if len(probs) >= 2:
+        import statistics
+
+        med = [statistics.median(v[k] for v in probs.values()) for k in range(3)]
     for b, o in latest.items():
+        flags = []
+        if o.home and o.draw and o.away:
+            ovr = sum(1 / x for x in (o.home, o.draw, o.away)) - 1
+            if ovr < -0.02 or ovr > 0.20:
+                flags.append(f"implausible margin {ovr:.0%}")
+            if med and b in probs and max(abs(a - c) for a, c in zip(probs[b], med)) > 0.10:
+                flags.append("disagrees with other bookmakers by >10pp")
         out[b] = {"label": BOOKMAKER_LABELS.get(b, b), "home": o.home, "draw": o.draw, "away": o.away,
                   "over25": o.over25, "under25": o.under25, "ah_line": o.ah_line, "ah_home": o.ah_home,
                   "ah_away": o.ah_away, "retrieved_at": iso(o.retrieved_at), "source": o.source,
                   "source_url": o.source_url, "snapshots": sum(1 for r in rows if r.bookmaker == b),
+                  "suspect": bool(flags), "flags": flags,
                   "overround_1x2": round(sum(1 / x for x in (o.home, o.draw, o.away)) - 1, 4) if o.home and o.draw and o.away else None,
                   "devig_1x2": [round(x, 4) for x in devig([o.home, o.draw, o.away])] if o.home and o.draw and o.away else None}
     return out
@@ -125,6 +139,13 @@ def health():
         db_ok = False
     return {"status": "ok" if db_ok else "degraded", "version": __version__, "database": db_ok,
             "scheduler_running": scheduler.running(), "time_utc": iso(utcnow()), "simulation_only": True}
+
+
+@app.get("/api/health_detail")
+def health_detail():
+    from .health import compute
+
+    return compute()
 
 
 @app.get("/api/overview")
@@ -193,9 +214,15 @@ def upcoming(days: int = Query(7, ge=1, le=21), competition: str | None = None, 
             item = {**_fixture_dict(f, teams, comps), "odds": _odds_summary(s, f.id, now),
                     "team_news": news.get(f.id, []), "team_news_status": "confirmed items" if f.id in news else
                     "no team-news source connected (unverified — treat as unknown)"}
+            item["odds_suspect"] = any(o.get("suspect") for o in item["odds"].values())
             if p is not None:
                 item["prediction"] = _pred_dict(p, with_inputs=True)
                 item["value"] = [_va_dict(v) for v in s.scalars(select(ValueAssessment).where(ValueAssessment.prediction_id == p.id))]
+                clean = [v for v in item["value"] if v["ev_conservative"] is not None
+                         and not any("data error" in r or "too large" in r for r in v["reject_reasons"])]
+                item["best_value"] = max(clean, key=lambda v: v["ev_conservative"], default=None)
+                item["data_error_markets"] = sorted({v["market"] for v in item["value"]
+                                                     if any("data error" in r for r in v["reject_reasons"])})
             else:
                 cov = c.coverage or {}
                 reasons = cov.get("reasons") or []
@@ -204,6 +231,8 @@ def upcoming(days: int = Query(7, ge=1, le=21), competition: str | None = None, 
                 elif not reasons:
                     reasons = ["teams lack sufficient history in this competition, or prediction pending next run"]
                 item["ineligible_reasons"] = reasons
+                item["coverage_label"] = ("DATA COVERAGE ONLY — PREDICTIONS NOT ENABLED" if not c.eligible
+                                          else "INSUFFICIENT DATA" if f.kickoff_utc > now else "STARTED")
             out.append(item)
         return {"fixtures": out, "generated_at": iso(now), "data_mode": "pre-match (periodically refreshed); no live feed connected"}
 
@@ -267,9 +296,32 @@ def bets(status: str | None = None, competition: str | None = None, market: str 
             q = q.where(VirtualBet.kickoff_utc >= datetime.fromisoformat(date_from))
         if date_to:
             q = q.where(VirtualBet.kickoff_utc < datetime.fromisoformat(date_to) + timedelta(days=1))
+        from .db import BankrollTransaction
+
+        stake_tx = {t.bet_id: t for t in s.scalars(select(BankrollTransaction).where(BankrollTransaction.tx_type == "stake"))}
+        settle_tx = {t.bet_id: t for t in s.scalars(select(BankrollTransaction).where(BankrollTransaction.tx_type.in_(["payout", "refund"])))}
+        preds = {p.id: p for p in s.scalars(select(Prediction).where(Prediction.id.in_(select(VirtualBet.prediction_id))))}
+        import bisect
+
+        all_tx = s.scalars(select(BankrollTransaction).order_by(BankrollTransaction.created_at, BankrollTransaction.id)).all()
+        tx_times = [t.created_at for t in all_tx]
         out = []
         for b, f in s.execute(q.order_by(VirtualBet.created_at.desc())).all():
             d = _bet_dict(b, f, teams, comps, sts.get(b.id))
+            st = stake_tx.get(b.id)
+            d["bankroll_before"] = round(st.balance_after + b.stake, 2) if st else None
+            d["bankroll_after_stake"] = st.balance_after if st else None
+            if b.id in settle_tx:
+                d["bankroll_after_settlement"] = settle_tx[b.id].balance_after
+            elif b.settled_at is not None:  # lost bet: no credit, bankroll as it stood at settlement
+                i = bisect.bisect_right(tx_times, b.settled_at) - 1
+                d["bankroll_after_settlement"] = all_tx[i].balance_after if i >= 0 else None
+            else:
+                d["bankroll_after_settlement"] = None
+            pr = preds.get(b.prediction_id)
+            d["data_quality"] = pr.data_quality if pr else None
+            d["confidence"] = pr.confidence if pr else None
+            d["reason"] = next((x for x in (pr.explanation.split("VALUE: ")[1:] if pr else [])), None)
             if competition and d["fixture"]["competition"] != competition:
                 continue
             if team and team.lower() not in (d["fixture"]["home"] + "|" + d["fixture"]["away"]).lower():

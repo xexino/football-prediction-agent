@@ -17,7 +17,7 @@ import pandas as pd
 
 from ..catalog import FD_UK_DIV, FD_UK_LEAGUE, FD_UK_NEW
 from ..timeutil import local_to_utc, utcnow
-from .base import Provider
+from .base import Provider, ProviderError
 
 BASE = "https://www.football-data.co.uk"
 
@@ -69,6 +69,14 @@ def _price(v):
     return f if f is not None and 1.01 <= f <= 1000 else None
 
 
+def _ko(row: dict):
+    """Kickoff in UTC, or None for rows with an invalid/missing date (skipped and counted)."""
+    try:
+        return local_to_utc(row["Date"], row.get("Time"))
+    except (ValueError, KeyError, TypeError):
+        return None
+
+
 def extract_odds(row: dict) -> list:
     out = []
     for kind, c in (("pre_match", ""), ("closing", "C")):
@@ -118,10 +126,16 @@ class FootballDataUK(Provider):
     reliability = "high"
     min_interval_s = 1.5
     cache_ttl_s = 6 * 3600
+    invalid_rows = 0
 
     def _read_csv(self, url: str, ttl: int | None = None):
         res = self.get(url, ttl=ttl)
-        df = pd.read_csv(io.StringIO(res.text), dtype=str, on_bad_lines="skip")
+        if res.text.lstrip().lower().startswith(("<!doctype", "<html")):
+            raise ProviderError(f"expected CSV but got HTML from {res.url}")
+        try:
+            df = pd.read_csv(io.StringIO(res.text), dtype=str, on_bad_lines="skip")
+        except Exception as exc:  # pandas raises several parser/empty-data errors
+            raise ProviderError(f"malformed CSV from {res.url}: {exc}") from exc
         df.columns = [c.strip().lstrip("﻿") for c in df.columns]
         df = df.dropna(how="all")
         return df, res
@@ -137,10 +151,14 @@ class FootballDataUK(Provider):
         for row in df.to_dict("records"):
             if not row.get("HomeTeam") or not row.get("Date"):
                 continue
+            ko = _ko(row)
+            if ko is None:
+                self.invalid_rows += 1
+                continue
             fthg, ftag = _int(row.get("FTHG")), _int(row.get("FTAG"))
             recs.append(MatchRecord(
                 comp_code=code, season=f"20{season[:2]}/{season[2:]}", home=row["HomeTeam"].strip(),
-                away=row["AwayTeam"].strip(), kickoff_utc=local_to_utc(row["Date"], row.get("Time")),
+                away=row["AwayTeam"].strip(), kickoff_utc=ko,
                 country=BY_CODE[code]["country"],
                 status="finished" if fthg is not None and ftag is not None else "scheduled",
                 home_goals=fthg, away_goals=ftag, ht_home=_int(row.get("HTHG")), ht_away=_int(row.get("HTAG")),
@@ -158,7 +176,10 @@ class FootballDataUK(Provider):
         for row in df.to_dict("records"):
             if not row.get("Home") or not row.get("Date"):
                 continue
-            ko = local_to_utc(row["Date"], row.get("Time"))
+            ko = _ko(row)
+            if ko is None:
+                self.invalid_rows += 1
+                continue
             if ko.year < since_year:
                 continue
             hg, ag = _int(row.get("HG")), _int(row.get("AG"))
@@ -183,17 +204,17 @@ class FootballDataUK(Provider):
         df, res = self._read_csv(f"{BASE}/fixtures.csv", ttl)
         for row in df.to_dict("records"):
             code = FD_UK_DIV.get((row.get("Div") or "").strip())
-            if not code or not row.get("HomeTeam"):
+            if not code or not row.get("HomeTeam") or _ko(row) is None:
                 continue
             recs.append(MatchRecord(
                 comp_code=code, season="", home=row["HomeTeam"].strip(), away=row["AwayTeam"].strip(),
-                kickoff_utc=local_to_utc(row["Date"], row.get("Time")), country=BY_CODE[code]["country"],
+                kickoff_utc=_ko(row), country=BY_CODE[code]["country"],
                 odds=[o for o in extract_odds(row) if o[1] == "pre_match"], source_url=res.url, retrieved_at=res.retrieved_at,
             ))
         df, res = self._read_csv(f"{BASE}/new_league_fixtures.csv", ttl)
         for row in df.to_dict("records"):
             code = FD_UK_LEAGUE.get(f"{(row.get('Country') or '').strip()}|{(row.get('League') or '').strip()}")
-            if not code or not row.get("Home"):
+            if not code or not row.get("Home") or _ko(row) is None:
                 continue
             odds = []
             for bk in ("PS", "Max", "Avg", "BFE", "B365"):
@@ -202,7 +223,7 @@ class FootballDataUK(Provider):
                     odds.append((bk, "pre_match", m))
             recs.append(MatchRecord(
                 comp_code=code, season="", home=row["Home"].strip(), away=row["Away"].strip(),
-                kickoff_utc=local_to_utc(row["Date"], row.get("Time")), country=BY_CODE[code]["country"],
+                kickoff_utc=_ko(row), country=BY_CODE[code]["country"],
                 odds=odds, source_url=res.url, retrieved_at=res.retrieved_at,
             ))
         return recs

@@ -15,6 +15,13 @@ from tests.conftest import synthetic_league
 IMMUTABLE_ERR = (IntegrityError, OperationalError)
 
 
+def after_kickoff(monkeypatch, ko, hours=3):
+    """Simulate the clock moving past kickoff (results may only be ingested for started matches)."""
+    import fil.ingest
+
+    monkeypatch.setattr(fil.ingest, "utcnow", lambda: ko + timedelta(hours=hours))
+
+
 def rec(home="Alpha", away="Beta", ko=None, status="scheduled", hg=None, ag=None, odds=None, comp="ENG1"):
     return MatchRecord(comp_code=comp, season="2026/27", home=home, away=away, kickoff_utc=ko or (utcnow() + timedelta(days=2)),
                        country="England", status=status, home_goals=hg, away_goals=ag, odds=odds or [],
@@ -221,7 +228,7 @@ def test_bet_after_kickoff_rejected_by_db(db):
         s.rollback()
 
 
-def test_settlement_and_no_resettle(db):
+def test_settlement_and_no_resettle(db, monkeypatch):
     from fil.betting import settle_pending
 
     fid, ids = _force_bet(db)
@@ -229,6 +236,7 @@ def test_settlement_and_no_resettle(db):
         fx = s.get(Fixture, fid)
         ko = fx.kickoff_utc
     assert settle_pending()["settled"] == 0  # no result yet -> stays pending
+    after_kickoff(monkeypatch, ko)
     ingest_records([rec("Team 0", "Team 1", ko, status="finished", hg=2, ag=1)], "football_data_uk")
     out = settle_pending()
     assert out["settled"] == len(ids)
@@ -247,12 +255,13 @@ def test_settlement_and_no_resettle(db):
         s.rollback()
 
 
-def test_conflict_keeps_bet_pending(db):
+def test_conflict_keeps_bet_pending(db, monkeypatch):
     from fil.betting import settle_pending
 
     fid, ids = _force_bet(db)
     with session_scope() as s:
         ko = s.get(Fixture, fid).kickoff_utc
+    after_kickoff(monkeypatch, ko)
     ingest_records([rec("Team 0", "Team 1", ko, status="finished", hg=2, ag=1)], "football_data_uk")
     ingest_records([rec("Team 0", "Team 1", ko, status="finished", hg=1, ag=1)], "thesportsdb")
     out = settle_pending()
@@ -288,25 +297,52 @@ def test_job_runner_records_success_and_error(db, monkeypatch):
     from fil import jobs
     from fil.db import JobRun
 
-    monkeypatch.setitem(jobs.JOBS, "ok", lambda: {"x": 1})
-    monkeypatch.setitem(jobs.JOBS, "bad", lambda: 1 / 0)
+    monkeypatch.setitem(jobs.JOBS, "ok", lambda: [("a", lambda: {"x": 1}, True)])
+    monkeypatch.setitem(jobs.JOBS, "bad", lambda: [("a", lambda: 1 / 0, True)])
     assert jobs.run_job("ok")["status"] == "success"
     assert jobs.run_job("bad")["status"] == "error"
     with session_scope() as s:
         runs = {r.job: r for r in s.scalars(select(JobRun))}
         assert runs["ok"].status == "success" and runs["bad"].status == "error"
         assert "ZeroDivisionError" in runs["bad"].error
+        assert runs["ok"].summary["steps"]["a"]["status"] == "success"
+
+
+def test_failed_step_does_not_stop_others(db, monkeypatch):
+    """Regression: a provider/merge crash used to abort settlement and predictions."""
+    from fil import jobs
+
+    ran = []
+    monkeypatch.setitem(jobs.JOBS, "mixed", lambda: [
+        ("collect", lambda: 1 / 0, False), ("settle", lambda: ran.append("settle") or {}, True),
+        ("predict", lambda: ran.append("predict") or {}, True)])
+    res = jobs.run_job("mixed")
+    assert ran == ["settle", "predict"]
+    assert res["status"] == "partial"
+    assert res["summary"]["report"]["failed_steps"] == ["collect"]
+    monkeypatch.setitem(jobs.JOBS, "crit", lambda: [("settle", lambda: 1 / 0, True), ("x", lambda: {}, False)])
+    assert jobs.run_job("crit")["status"] == "error"
 
 
 def test_job_lock_prevents_overlap(db, monkeypatch):
     from fil import jobs
 
-    monkeypatch.setitem(jobs.JOBS, "ok", lambda: {})
+    monkeypatch.setitem(jobs.JOBS, "ok", lambda: [("a", lambda: {}, False)])
     jobs._LOCK.acquire()
     try:
-        assert jobs.run_job("ok") == {"skipped": True}
+        assert jobs.run_job("ok")["status"] == "skipped"
     finally:
         jobs._LOCK.release()
+
+
+def test_db_lease_prevents_cross_process_overlap(db, monkeypatch):
+    from fil import jobs
+    from fil.db import JobRun
+
+    monkeypatch.setitem(jobs.JOBS, "ok", lambda: [("a", lambda: {}, False)])
+    with session_scope() as s:
+        s.add(JobRun(job="daily", status="running"))  # another process holds the lease
+    assert jobs.run_job("ok")["status"] == "skipped"
 
 
 def test_scheduler_starts_and_lists_jobs(db, monkeypatch):
@@ -327,9 +363,12 @@ def test_backup_and_restore(db, tmp_path):
     from fil.backup import backup, restore
 
     ingest_records([rec()], "football_data_uk")
-    f = backup(tmp_path / "bk")
+    f = backup(tmp_path / "bk", verify=True)
     assert f.exists() and f.suffix == ".gz"
     restore(f)
+    from fil.integrity import check_database
+    chk = check_database()
+    assert chk["ok"] and chk["counts"]["fixtures"] == 1  # restored data is really there
 
 
 def test_api_endpoints(db):
@@ -362,7 +401,7 @@ def test_api_endpoints(db):
 
 
 def test_anchor_matching_merges_unrecognised_name(db):
-    ko = utcnow() + timedelta(days=2)
+    ko = utcnow() - timedelta(days=2)
     ingest_records([rec("Getafe", "Ath Madrid", ko)], "football_data_uk")
     ingest_records([rec("Getafe", "Atlético Madrid", ko, status="finished", hg=0, ag=1)], "thesportsdb")
     with session_scope() as s:

@@ -71,8 +71,9 @@ export default function Analytics() {
               <ResponsiveContainer width="100%" height={220}>
                 <BarChart data={metricRows}><CartesianGrid stroke="#1a2430" vertical={false} /><XAxis dataKey="model" stroke="#4f5e6d" fontSize={10} /><YAxis stroke="#4f5e6d" fontSize={10} domain={[0.9, "auto"]} /><Tooltip {...tooltipStyle} /><Bar isAnimationActive={false} dataKey="log_loss" fill="#4ea1ff" name="log loss" /></BarChart>
               </ResponsiveContainer>
-              <table><thead><tr><th>Model</th><th className="num">n</th><th className="num">Log loss</th><th className="num">Brier</th><th className="num">Accuracy</th></tr></thead>
-                <tbody>{metricRows.map((r: any) => <tr key={r.model}><td>{r.model}</td><td className="num">{r.n}</td><td className="num">{num(r.log_loss, 4)}</td><td className="num">{num(r.brier, 4)}</td><td className="num">{pct(r.accuracy)}</td></tr>)}</tbody></table>
+              <table><thead><tr><th>Model</th><th className="num">n</th><th className="num">Log loss</th><th className="num">Brier</th><th className="num">Accuracy</th><th className="num">ECE</th></tr></thead>
+                <tbody>{metricRows.map((r: any) => <tr key={r.model}><td>{r.model}</td><td className="num">{r.n}</td><td className="num">{num(r.log_loss, 4)}</td><td className="num">{num(r.brier, 4)}</td><td className="num">{pct(r.accuracy)}</td><td className="num">{r.ece != null ? num(r.ece, 4) : "—"}</td></tr>)}</tbody></table>
+              <p className="muted" style={{ fontSize: 11 }}>ECE = expected calibration error (lower is better). Baseline = league home/draw/away frequencies.</p>
             </Card>
             <Card title="Backtest calibration (ensemble)"><Calib pts={B.calibration.ensemble} title="ensemble" /></Card>
           </div>
@@ -80,7 +81,8 @@ export default function Analytics() {
             <Card title="Simulated strategy (backtest, 1u flat)">
               <div className="kv">
                 <span>Bets</span><span className="mono">{B.strategy.bets}</span><span>Profit</span><span className={`mono ${cls(B.strategy.profit)}`}>{num(B.strategy.profit)}u</span>
-                <span>ROI</span><span className={`mono ${cls(B.strategy.roi)}`}>{spct(B.strategy.roi)}</span><span>Win rate</span><span className="mono">{pct(B.strategy.win_rate)}</span>
+                <span>ROI</span><span className={`mono ${cls(B.strategy.roi)}`}>{spct(B.strategy.roi)}</span>
+                <span>ROI 95% CI</span><span className="mono">{B.strategy.roi_95ci ? `${spct(B.strategy.roi_95ci[0])} … ${spct(B.strategy.roi_95ci[1])}` : "n/a"}</span><span>Win rate</span><span className="mono">{pct(B.strategy.win_rate)}</span>
                 <span>Max drawdown</span><span className="mono">{num(B.strategy.max_drawdown)}u</span><span>Avg CLV</span><span className="mono">{spct(B.strategy.avg_clv)}</span>
               </div>
               <p className="muted" style={{ fontSize: 11 }}>{B.note}</p>
@@ -93,6 +95,14 @@ export default function Analytics() {
             <Card title="Backtest strategy by market & odds"><PerfTable data={B.strategy_by_market} label="Market" /><div style={{ height: 10 }} /><PerfTable data={B.strategy_by_odds} label="Odds" /></Card>
             <Card title="Backtest strategy by competition"><div className="tablewrap"><PerfTable data={B.strategy_by_competition} label="Competition" /></div></Card>
           </div>
+          {(B.by_season || B.by_probability_range) && (
+            <div className="grid g2" style={{ marginTop: 12 }}>
+              <Card title="Ensemble by season">{B.by_season ? <table><thead><tr><th>Season</th><th className="num">n</th><th className="num">Log loss</th><th className="num">Brier</th><th className="num">Accuracy</th></tr></thead>
+                <tbody>{Object.entries(B.by_season).filter(([, v]) => v).map(([k, v]: any) => <tr key={k}><td>{k}</td><td className="num">{v.n}</td><td className="num">{num(v.log_loss, 4)}</td><td className="num">{num(v.brier, 4)}</td><td className="num">{pct(v.accuracy)}</td></tr>)}</tbody></table> : <div className="empty">Run the weekly backtest to populate.</div>}</Card>
+              <Card title="Favourite probability vs hit rate">{B.by_probability_range ? <table><thead><tr><th>Predicted range</th><th className="num">n</th><th className="num">Mean predicted</th><th className="num">Observed</th></tr></thead>
+                <tbody>{Object.entries(B.by_probability_range).map(([k, v]: any) => <tr key={k}><td>{k}</td><td className="num">{v.n}</td><td className="num">{pct(v.mean_prob)}</td><td className="num">{pct(v.hit_rate)}</td></tr>)}</tbody></table> : <div className="empty">Run the weekly backtest to populate.</div>}</Card>
+            </div>
+          )}
           {blend.length > 0 && (
             <Card title="How much does the model add to the market? (log loss of w·model + (1−w)·market)">
               <ResponsiveContainer width="100%" height={200}><LineChart data={blend}><CartesianGrid stroke="#1a2430" /><XAxis dataKey="w" stroke="#4f5e6d" fontSize={10} /><YAxis stroke="#4f5e6d" fontSize={10} domain={["auto", "auto"]} /><Tooltip {...tooltipStyle} /><Legend wrapperStyle={{ fontSize: 11 }} /><Line isAnimationActive={false} dataKey="train" stroke="#4ea1ff" name="first half (fit)" /><Line isAnimationActive={false} dataKey="test" stroke="#22c55e" name="second half (check)" /></LineChart></ResponsiveContainer>

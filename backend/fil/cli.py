@@ -34,7 +34,23 @@ def main(argv=None):
     e = sub.add_parser("export-static")
     e.add_argument("dir")
     sub.add_parser("status")
+    sub.add_parser("integrity")
+    m = sub.add_parser("manifest")
+    m.add_argument("out")
+    g = sub.add_parser("guard", help="exit 1 if DB must not replace the persisted one")
+    g.add_argument("db")
+    g.add_argument("prev_manifest", nargs="?")
+    rr = sub.add_parser("run-report", help="markdown report of the latest job runs")
+    rr.add_argument("--last", type=int, default=1)
     a = ap.parse_args(argv)
+
+    if a.cmd == "guard":
+        from .integrity import guard_replace
+
+        prev = Path(a.prev_manifest).read_text() if a.prev_manifest and Path(a.prev_manifest).exists() else None
+        ok, why = guard_replace(a.db, prev)
+        print(("OK: " if ok else "REFUSED: ") + why)
+        sys.exit(0 if ok else 1)
 
     from .db import init_db
 
@@ -57,8 +73,9 @@ def main(argv=None):
     elif a.cmd in ("bootstrap", "job"):
         from .jobs import run_job
 
-        res = run_job("bootstrap" if a.cmd == "bootstrap" else a.name)
-        print(json.dumps(res, default=str, indent=1)[:6000])
+        res = run_job("bootstrap" if a.cmd == "bootstrap" else a.name, timeout_s=45 * 60)
+        print(json.dumps({k: res.get(k) for k in ("status", "error")} | {"report": (res.get("summary") or {}).get("report")},
+                         default=str, indent=1)[:6000])
         if res.get("status") == "error":
             sys.exit(1)
     elif a.cmd == "backtest":
@@ -72,6 +89,26 @@ def main(argv=None):
         print(backup())
     elif a.cmd == "export-static":
         export_static(Path(a.dir))
+    elif a.cmd == "integrity":
+        from .integrity import check_database
+
+        res = check_database()
+        print(json.dumps(res, indent=1))
+        sys.exit(0 if res["ok"] else 1)
+    elif a.cmd == "manifest":
+        from .integrity import manifest
+
+        Path(a.out).write_text(json.dumps(manifest()))
+        print(Path(a.out).read_text())
+    elif a.cmd == "run-report":
+        from sqlalchemy import select
+
+        from .db import JobRun, session_scope
+        from .jobs import report_markdown
+
+        with session_scope() as s:
+            runs = s.scalars(select(JobRun).where(JobRun.status != "skipped").order_by(JobRun.id.desc()).limit(a.last)).all()
+            print("\n\n".join(report_markdown(r) for r in reversed(runs)))
     elif a.cmd == "status":
         from .api import health, overview
 
@@ -91,7 +128,7 @@ def export_static(out: Path):
     snap = {
         "health": api.health(), "overview": api.overview(), "upcoming": api.upcoming(days=14),
         "predictions": api.predictions(limit=2000), "bets": api.bets(limit=5000), "analytics": api.analytics(),
-        "sources": api.sources(), "system": api.system(), "reports": api.get_reports(limit=30), "meta": api.meta(),
+        "sources": api.sources(), "system": api.system(), "health_detail": api.health_detail(), "reports": api.get_reports(limit=30), "meta": api.meta(),
     }
     for k, v in snap.items():
         (data / f"{k}.json").write_text(json.dumps(v, default=str))

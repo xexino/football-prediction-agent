@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useApi } from "../hooks";
 import { api } from "../api";
-import { Card, Decision, Loading, ProbBar, Quality, num, pct, romeTime } from "../ui";
+import { Card, Decision, Explanation, Loading, ProbBar, Quality, num, pct, romeTime } from "../ui";
 import { ValueTable } from "./Upcoming";
 
 export default function Predictions() {
@@ -28,7 +28,9 @@ export default function Predictions() {
       </div>
       {detail && (
         <Card title={`Prediction #${detail.id} — ${detail.fixture.home} vs ${detail.fixture.away}`} right={<button onClick={() => setDetail(null)}>close</button>} className="detail">
+          <Explanation ex={detail.inputs?.explanation} />
           <p className="expl" style={{ maxWidth: "none" }}>{detail.explanation}</p>
+          {detail.probs?.CS_TOP && <p className="mono" style={{ fontSize: 12 }}>Scoreline distribution (top 6, not a certainty): {Object.entries(detail.probs.CS_TOP).map(([k, v]: any) => `${k} ${pct(v, 1)}`).join(" · ")}</p>}
           {detail.value ? <div className="tablewrap"><ValueTable rows={detail.value} /></div> : <div className="muted">Value table unavailable in static snapshot.</div>}
           {detail.revisions && <p className="muted mono" style={{ fontSize: 11 }}>Revisions: {detail.revisions.map((r: any) => `#${r.revision} ${romeTime(r.created_at)} ${r.reason || "original"}`).join(" · ")}</p>}
           <p className="muted" style={{ fontSize: 11 }}>Sources: {(detail.sources || []).join(", ")}</p>

@@ -53,7 +53,7 @@ The dashboard is built into `backend/fil/static` and served by the same process 
 | `python -m fil backtest --step 14` | Walk-forward backtest |
 | `python -m fil backup` / `python -m fil restore <file>` | Backup / restore |
 | `python -m fil export-static ../site` | Read-only dashboard snapshot (for GitHub Pages) |
-| `python -m pytest -q` | 49 backend tests (unit, DB, ingestion, settlement, pipeline, scheduler, API) |
+| `python -m pytest -q` | 70 backend tests (unit, DB, ingestion, settlement, reliability, integrity, health, lifecycle, API) |
 | `node frontend/e2e/smoke.cjs http://localhost:8000` | Browser end-to-end test of all 8 pages + mobile layout (Playwright) |
 
 ## Configuration
@@ -103,7 +103,7 @@ It keeps the database as the `db-latest` release asset and publishes a read-only
 | Data Sources | Providers, status, quota, errors, per-competition coverage and eligibility |
 | System Health | Jobs, next runs, DB, errors, reports |
 
-More detail is in [`docs/DECISIONS.md`](docs/DECISIONS.md): environment assessment, sources, models, validation
+Docs: [audit](docs/PRODUCT_AUDIT.md) · [backlog](docs/PRODUCT_BACKLOG.md) · [roadmap](docs/ROADMAP.md) · [data sources](docs/DATA_SOURCES.md) · [model validation](docs/MODEL_VALIDATION.md) · [operations](docs/OPERATIONS.md) · [changelog](docs/CHANGELOG.md). Design rationale is in [`docs/DECISIONS.md`](docs/DECISIONS.md): environment assessment, sources, models, validation
 results, quality score, risk and settlement rules, and limitations.
 
 Data attribution: football-data.co.uk, TheSportsDB, martj42/international_results (CC0).

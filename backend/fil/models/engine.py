@@ -120,6 +120,14 @@ class Engine:
             "n_home": p.n_matches.get(home, 0), "n_away": p.n_matches.get(away, 0),
         }
 
+    def team_strength(self, comp: str, team: int) -> tuple[float, float] | None:
+        """(attack, defence) log-rate parameters of the fitted Dixon-Coles model (0 = league average)."""
+        p = self.dc.get(comp)
+        if p is None or team not in p.teams:
+            return None
+        i = p.teams.index(team)
+        return float(p.att[i]), float(p.dfn[i])
+
     def team_form(self, team: int, n: int = 10, venue: str | None = None) -> dict:
         rows = [r for r in self.form.get(team, []) if venue is None or r[3] == venue][-n:]
         if not rows:
