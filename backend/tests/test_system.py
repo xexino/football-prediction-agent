@@ -392,3 +392,29 @@ def test_merge_duplicates_cleans_existing(db):
     assert merge_duplicates() == 1
     with session_scope() as s:
         assert len(s.scalars(select(Fixture)).all()) == 1
+
+
+def test_merge_duplicates_with_identical_result_on_both(db):
+    """Regression: the same source's identical result attached to both the duplicate and the real fixture."""
+    from fil.ingest import merge_duplicates
+    from fil.db import Competition
+
+    ko = utcnow() - timedelta(days=1)
+    ingest_records([rec("Getafe", "Ath Madrid", ko, status="finished", hg=0, ag=1)], "football_data_uk")
+    ingest_records([rec("Getafe", "Atlético Madrid", ko, status="finished", hg=0, ag=1)], "thesportsdb")  # anchored
+    with session_scope() as s:
+        comp = s.scalars(select(Competition).where(Competition.code == "ENG1")).one()
+        getafe = s.scalars(select(Team).where(Team.name == "Getafe")).one()
+        t = Team(name="Atletico Madrid", country="England")
+        s.add(t)
+        s.flush()
+        f = Fixture(competition_id=comp.id, home_team_id=getafe.id, away_team_id=t.id, kickoff_utc=ko,
+                    match_date=ko.strftime("%Y-%m-%d"), first_seen_source="thesportsdb", status="finished")
+        s.add(f)
+        s.flush()
+        s.add(ResultObservation(fixture_id=f.id, source="thesportsdb", status="finished", home_goals=0, away_goals=1))
+    assert merge_duplicates() == 1
+    with session_scope() as s:
+        fx = s.scalars(select(Fixture)).one()
+        assert fx.status == "finished" and not fx.result_conflict
+        assert len(s.scalars(select(ResultObservation)).all()) == 2

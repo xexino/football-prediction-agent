@@ -34,7 +34,7 @@ class TheSportsDB(Provider):
     base_url = "https://www.thesportsdb.com/api/v1/json"
     license_note = "Free public test key '123' — heavily limited (≈1-15 events per request). Community-maintained data."
     reliability = "medium"
-    min_interval_s = 2.2  # free tier allows ~30 req/min
+    min_interval_s = 3.0  # free test key is rate-limited; stay well under it
     cache_ttl_s = 3 * 3600
 
     def redact(self, url: str) -> str:
@@ -71,10 +71,6 @@ class TheSportsDB(Provider):
         for ep in ("eventsnextleague.php", "eventspastleague.php"):
             events, url, ts = self._events(ep, {"id": lid})
             out += [r for r in (self._to_record(e, comp_code, url, ts) for e in events) if r]
-        y = utcnow().year if utcnow().month >= 7 else utcnow().year - 1
-        season = f"{y}-{y + 1}"
-        events, url, ts = self._events("eventsseason.php", {"id": lid, "s": season}, ttl=24 * 3600)
-        out += [r for r in (self._to_record(e, comp_code, url, ts) for e in events) if r]
         return out
 
 

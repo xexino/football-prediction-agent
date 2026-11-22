@@ -93,7 +93,7 @@ def collect_fixtures() -> dict:
     if errs and not n:
         tsdb.mark_error("; ".join(errs)[:900], requests=len(errs))
     else:
-        tsdb.mark_success(records=n, requests=3 * sum(1 for c in COMPETITIONS if "tsdb" in c["sources"]))
+        tsdb.mark_success(records=n, requests=2 * sum(1 for c in COMPETITIONS if "tsdb" in c["sources"]))
     out["thesportsdb"] = {"records": n, "errors": errs}
     from .ingest import merge_duplicates
 

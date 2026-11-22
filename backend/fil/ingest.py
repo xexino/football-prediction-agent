@@ -241,9 +241,20 @@ def merge_duplicates() -> int:
                                                                      TeamAlias.team_id == right))
                     if not exists:
                         s.add(TeamAlias(alias_norm=normalize(t.name), source=d.first_seen_source, team_id=right, confidence=0.85))
-            for o in s.scalars(select(ResultObservation).where(ResultObservation.fixture_id == d.id)):
-                o.fixture_id = p.id
+            for o in s.scalars(select(ResultObservation).where(ResultObservation.fixture_id == d.id)).all():
+                with s.no_autoflush:
+                    same = s.scalar(select(ResultObservation.id).where(
+                        ResultObservation.fixture_id == p.id, ResultObservation.source == o.source,
+                        ResultObservation.status == o.status, ResultObservation.home_goals.is_(o.home_goals) if o.home_goals is None
+                        else ResultObservation.home_goals == o.home_goals,
+                        ResultObservation.away_goals.is_(o.away_goals) if o.away_goals is None
+                        else ResultObservation.away_goals == o.away_goals))
+                if same:
+                    s.delete(o)  # identical report already attached to the real fixture
+                else:
+                    o.fixture_id = p.id
             p.external_ids = {**(p.external_ids or {}), **(d.external_ids or {})}
+            s.flush()  # observations moved/removed before the fixture row goes
             s.delete(d)
             s.flush()
             reconcile(s, p)
