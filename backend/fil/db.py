@@ -357,6 +357,153 @@ class BankrollTransaction(Base):
     note: Mapped[str] = mapped_column(Text, default="")
 
 
+# --------------------------------------------------------------------------- ENGINE B (AI Match Insights)
+# Fully separate from Engine A: own models, predictions, live snapshots, ledger and bankroll.
+class EBModelVersion(Base):
+    __tablename__ = "eb_model_versions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(64))
+    version: Mapped[str] = mapped_column(String(32))
+    description: Mapped[str] = mapped_column(Text, default="")
+    params: Mapped[dict] = mapped_column(JSON, default=dict)
+    features: Mapped[list] = mapped_column(JSON, default=list)
+    metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    __table_args__ = (UniqueConstraint("name", "version", name="uq_eb_model_version"),)
+
+
+class EBPrediction(Base):
+    """Immutable pre-match prediction of Engine B (revisions are new rows)."""
+
+    __tablename__ = "eb_predictions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    fixture_id: Mapped[int] = mapped_column(ForeignKey("fixtures.id"), index=True)
+    model_version_id: Mapped[int] = mapped_column(ForeignKey("eb_model_versions.id"))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    kickoff_utc: Mapped[datetime] = mapped_column(DateTime)
+    data_cutoff: Mapped[datetime] = mapped_column(DateTime)
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    markets: Mapped[dict] = mapped_column(JSON)          # market -> selection -> prob / expectations
+    score_matrix: Mapped[list] = mapped_column(JSON)     # 0..9 x 0..9 probabilities
+    features: Mapped[dict] = mapped_column(JSON)         # feature snapshot (reproducibility)
+    confidence: Mapped[float] = mapped_column(Float)
+    data_quality: Mapped[float] = mapped_column(Float)
+    unavailable: Mapped[dict] = mapped_column(JSON, default=dict)  # market -> reason
+    report: Mapped[dict] = mapped_column(JSON, default=dict)       # AI Match Analyst report
+    inputs_hash: Mapped[str] = mapped_column(String(40))
+
+
+class EBLiveSnapshot(Base):
+    """Timestamped in-play state + live prediction. Never overwrites pre-match predictions."""
+
+    __tablename__ = "eb_live_snapshots"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    fixture_id: Mapped[int] = mapped_column(ForeignKey("fixtures.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    provider: Mapped[str] = mapped_column(String(64))
+    provider_event_id: Mapped[str] = mapped_column(String(64))
+    status: Mapped[str] = mapped_column(String(16))
+    minute: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    minute_source: Mapped[str] = mapped_column(String(16))  # provider / estimated / unknown
+    home_goals: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    away_goals: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    stats: Mapped[dict] = mapped_column(JSON, default=dict)   # only fields the provider actually supplied
+    provider_updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    freshness_s: Mapped[float | None] = mapped_column(Float, nullable=True)
+    data_label: Mapped[str] = mapped_column(String(24))       # LIVE / DELAYED / STALE
+    model_version_id: Mapped[int | None] = mapped_column(ForeignKey("eb_model_versions.id"), nullable=True)
+    probs: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    input_hash: Mapped[str] = mapped_column(String(40))
+    __table_args__ = (UniqueConstraint("fixture_id", "input_hash", name="uq_eb_live_input"),)
+
+
+class EBLiveEvent(Base):
+    __tablename__ = "eb_live_events"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    fixture_id: Mapped[int] = mapped_column(ForeignKey("fixtures.id"), index=True)
+    provider: Mapped[str] = mapped_column(String(64))
+    event_key: Mapped[str] = mapped_column(String(128))
+    minute: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    event_type: Mapped[str] = mapped_column(String(32))
+    side: Mapped[str | None] = mapped_column(String(8), nullable=True)
+    player: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    detail: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    retrieved_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    __table_args__ = (UniqueConstraint("provider", "event_key", name="uq_eb_live_event"),)
+
+
+class EBBet(Base):
+    __tablename__ = "eb_bets"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    prediction_id: Mapped[int] = mapped_column(ForeignKey("eb_predictions.id"))
+    fixture_id: Mapped[int] = mapped_column(ForeignKey("fixtures.id"), index=True)
+    model_version_id: Mapped[int] = mapped_column(ForeignKey("eb_model_versions.id"))
+    mode: Mapped[str] = mapped_column(String(8), default="prematch")
+    market: Mapped[str] = mapped_column(String(16))
+    selection: Mapped[str] = mapped_column(String(16))
+    line: Mapped[float | None] = mapped_column(Float, nullable=True)
+    price: Mapped[float] = mapped_column(Float)
+    bookmaker: Mapped[str] = mapped_column(String(32))
+    odds_observation_id: Mapped[int | None] = mapped_column(ForeignKey("odds_observations.id"), nullable=True)
+    stake: Mapped[float] = mapped_column(Float)
+    model_prob: Mapped[float] = mapped_column(Float)
+    market_prob: Mapped[float | None] = mapped_column(Float, nullable=True)
+    ev: Mapped[float] = mapped_column(Float)
+    reason: Mapped[str] = mapped_column(Text, default="")
+    data_quality: Mapped[float] = mapped_column(Float)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    kickoff_utc: Mapped[datetime] = mapped_column(DateTime)
+    status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
+    settled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    payout: Mapped[float | None] = mapped_column(Float, nullable=True)
+    profit: Mapped[float | None] = mapped_column(Float, nullable=True)
+    closing_price: Mapped[float | None] = mapped_column(Float, nullable=True)
+    clv: Mapped[float | None] = mapped_column(Float, nullable=True)
+
+
+class EBSettlement(Base):
+    __tablename__ = "eb_settlements"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    bet_id: Mapped[int] = mapped_column(ForeignKey("eb_bets.id"), unique=True)
+    settled_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    home_goals: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    away_goals: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    result_source: Mapped[str] = mapped_column(String(128))
+    outcome: Mapped[str] = mapped_column(String(16))
+    payout: Mapped[float] = mapped_column(Float)
+    rule: Mapped[str] = mapped_column(Text)
+
+
+class EBBankrollTransaction(Base):
+    __tablename__ = "eb_bankroll_transactions"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow, index=True)
+    tx_type: Mapped[str] = mapped_column(String(16))
+    amount: Mapped[float] = mapped_column(Float)
+    balance_after: Mapped[float] = mapped_column(Float)
+    bet_id: Mapped[int | None] = mapped_column(ForeignKey("eb_bets.id"), nullable=True)
+    note: Mapped[str] = mapped_column(Text, default="")
+
+
+class EBEvaluation(Base):
+    """Post-match scoring of an Engine B prediction (kept apart so predictions stay fully immutable)."""
+
+    __tablename__ = "eb_evaluations"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    prediction_id: Mapped[int] = mapped_column(ForeignKey("eb_predictions.id"), unique=True)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    metrics: Mapped[dict] = mapped_column(JSON)
+
+
+class EBValidationRun(Base):
+    __tablename__ = "eb_validation_runs"
+    id: Mapped[int] = mapped_column(primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    model: Mapped[str] = mapped_column(String(64))
+    params: Mapped[dict] = mapped_column(JSON)
+    results: Mapped[dict] = mapped_column(JSON)
+
+
 # --------------------------------------------------------------------------- operations
 class JobRun(Base):
     __tablename__ = "job_runs"
@@ -411,6 +558,17 @@ IMMUTABLE = {
     ],
     "settlements": None,
     "bankroll_transactions": None,
+    "eb_predictions": None,
+    "eb_live_snapshots": None,
+    "eb_live_events": None,
+    "eb_settlements": None,
+    "eb_bankroll_transactions": None,
+    "eb_evaluations": None,
+    "eb_bets": [
+        "prediction_id", "fixture_id", "model_version_id", "mode", "market", "selection", "line", "price",
+        "bookmaker", "odds_observation_id", "stake", "model_prob", "market_prob", "ev", "reason", "data_quality",
+        "created_at", "kickoff_utc",
+    ],
     "odds_observations": [
         "fixture_id", "source", "bookmaker", "kind", "retrieved_at", "home", "draw", "away",
         "over25", "under25", "ah_line", "ah_home", "ah_away", "content_hash",
@@ -434,6 +592,15 @@ def _install_triggers(conn) -> None:
         "CREATE TRIGGER IF NOT EXISTS trg_bets_no_resettle BEFORE UPDATE OF status ON virtual_bets "
         "WHEN OLD.status != 'pending' "
         "BEGIN SELECT RAISE(ABORT, 'settled bets cannot be changed'); END;"
+    ))
+    conn.execute(text(
+        "CREATE TRIGGER IF NOT EXISTS trg_eb_bets_no_resettle BEFORE UPDATE OF status ON eb_bets "
+        "WHEN OLD.status != 'pending' BEGIN SELECT RAISE(ABORT, 'settled bets cannot be changed'); END;"
+    ))
+    conn.execute(text(
+        "CREATE TRIGGER IF NOT EXISTS trg_eb_bets_prekickoff BEFORE INSERT ON eb_bets "
+        "WHEN NEW.mode = 'prematch' AND NEW.created_at >= NEW.kickoff_utc "
+        "BEGIN SELECT RAISE(ABORT, 'pre-match bets must be created before kickoff'); END;"
     ))
     # a bet can only be created before kickoff
     conn.execute(text(

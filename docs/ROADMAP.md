@@ -17,3 +17,10 @@ Ordered by dependency, then priority. Status lives in `PRODUCT_BACKLOG.md`.
 3. D-2: rest days / fixture congestion as model features — evaluate via walk-forward before adopting.
 4. I-2 / I-6: simple-Poisson baseline; revisit 1X2 betting once ≥100 backtest bets exist.
 5. If API keys are provided: B-3, then N-1 / D-1 (API-Football adapter: injuries, lineups, CAF, African leagues).
+
+## After v2.0.0 (next five)
+1. Add `API_FOOTBALL_KEY` (user action), then verify real live mode, lineups, injuries and the African leagues.
+2. Engine B 1X2 improvement (stacking with Engine A or the market), adopted only if it wins out of sample.
+3. Corners model: add referee and pace features; adopt only if it beats the league-mean baseline.
+4. Persistent live poller (an always-on host) for sub-minute updates. GitHub Actions cron is near-live at best.
+5. Optional LLM explanation layer that rephrases only (numbers locked), behind a key.

@@ -48,7 +48,25 @@ def assess_coverage(engine=None) -> list[dict]:
             if not model_ready and hist >= MIN_HISTORY:
                 reasons.append("model not fitted (cup/international format or insufficient league data)")
             eligible = not reasons
+            live_sources = [k for k in ("apif", "fdorg") if k in (c.sources or {})]
+            from .config import settings as _st
+
+            live_ready = ("apif" in live_sources and bool(_st.api_football_key)) or ("fdorg" in live_sources and bool(_st.football_data_org_key))
+            if eligible and stats_share >= 0.5:
+                status = "FULL COVERAGE"
+            elif eligible:
+                status = "PARTIAL COVERAGE"
+            elif hist >= 50 or season >= 20:
+                status = "FIXTURES AND RESULTS ONLY"
+            elif live_ready:
+                status = "LIVE SCORES ONLY"
+            elif hist > 0 or len(upcoming_ids) > 0:
+                status = "COVERAGE ONLY — NOT ENOUGH DATA FOR PREDICTIONS"
+            else:
+                status = "UNAVAILABLE"
             cov = {
+                "coverage_status": status, "live": ("delayed score (football-data.org free)" if "fdorg" in live_sources and _st.football_data_org_key
+                                                   else "awaiting API_FOOTBALL_KEY" if "apif" in live_sources else "no live source"),
                 "historical_matches": hist, "current_season_matches": season, "upcoming_14d": len(upcoming_ids),
                 "upcoming_with_odds": with_odds, "odds_history_share": round(odds_share, 3),
                 "stats_share": round(stats_share, 3), "xg_current_season": xg, "team_news_items": news,

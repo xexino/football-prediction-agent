@@ -15,11 +15,12 @@ on:
   schedule:
     - cron: "10 5 * * *"        # daily full cycle (≈06:10 Rome)
     - cron: "40 */3 * * *"      # fixtures/odds + results + pre-match review every 3h
-    - cron: "25 6 * * 1"        # weekly report + walk-forward backtest (Monday)
+    - cron: "25 6 * * 1"        # weekly report + walk-forward backtests (Monday)
+    - cron: "*/20 11-23 * * *"  # live-match polling during match hours (respects provider quotas)
   workflow_dispatch:
     inputs:
       job:
-        description: "job (daily, fixtures_odds, results, prematch_review, weekly, bootstrap)"
+        description: "job (daily, fixtures_odds, results, prematch_review, weekly, live, engine_b, bootstrap)"
         default: daily
 permissions:
   contents: write
@@ -78,6 +79,7 @@ jobs:
             case "${{ github.event.schedule }}" in
               "10 5 * * *") JOB=daily ;;
               "25 6 * * 1") JOB=weekly ;;
+              "*/20 11-23 * * *") JOB=live ;;
               *) JOB=results,fixtures_odds ;;
             esac
           fi

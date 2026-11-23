@@ -12,12 +12,18 @@ import History from "./pages/History";
 import Analytics from "./pages/Analytics";
 import Sources from "./pages/Sources";
 import System from "./pages/System";
+import Insights from "./pages/ai/Insights";
+import InsightDetail from "./pages/ai/InsightDetail";
+import Compare from "./pages/ai/Compare";
+import EngineB from "./pages/ai/EngineB";
+import CoveragePage from "./pages/ai/Coverage";
 
 const NAV = [
   ["/", "◎", "Overview"], ["/upcoming", "▤", "Upcoming"], ["/predictions", "∑", "Predictions"],
   ["/slip", "▣", "Virtual Bet Slip"], ["/history", "≡", "Results & History"], ["/analytics", "▲", "Analytics"],
   ["/sources", "⇅", "Data Sources"], ["/system", "♥", "System Health"],
 ];
+const NAV_AI = [["/insights", "✦", "Match Insights"], ["/compare", "⇄", "Engine A vs B"], ["/engine-b", "◆", "Engine B record"], ["/coverage", "⊕", "Global coverage"]];
 
 const STATE_CLASS: Record<string, string> = { HEALTHY: "ok", WARNING: "warn", STALE: "warn", FAILED: "err", UNKNOWN: "" };
 
@@ -52,6 +58,10 @@ function Shell() {
               <span className="ico">{ico}</span>{label}
             </NavLink>
           ))}
+          <div className="nav-sec">AI MATCH INSIGHTS</div>
+          {NAV_AI.map(([to, ico, label]) => (
+            <NavLink key={to} to={to}><span className="ico">{ico}</span>{label}</NavLink>
+          ))}
         </nav>
         <div className="sim-banner"><b>SIMULATION ONLY.</b> Virtual €100 bankroll. No real-money bets, no bookmaker accounts, no transactions.</div>
         <div className="sim-banner">
@@ -72,6 +82,11 @@ function Shell() {
           <Route path="/analytics" element={<Analytics />} />
           <Route path="/sources" element={<Sources />} />
           <Route path="/system" element={<System />} />
+          <Route path="/insights" element={<Insights />} />
+          <Route path="/insights/:id" element={<InsightDetail />} />
+          <Route path="/compare" element={<Compare />} />
+          <Route path="/engine-b" element={<EngineB />} />
+          <Route path="/coverage" element={<CoveragePage />} />
         </Routes>
       </main>
     </div>

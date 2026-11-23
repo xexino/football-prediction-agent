@@ -60,3 +60,21 @@ verification column was actually performed. Updated 2026-11-22.
 | M-1 | Notification channel beyond GitHub failure e-mails | TODO | e.g. issue on repeated FAILED health |
 | P-2 | Prune odds of seasons older than training window | TODO | DB size |
 | Q-3 | Upgrade Actions to Node 24 versions | TODO | deprecation warnings |
+
+
+## v2.0.0 — Engine B / live data (2026-11-23)
+| ID | Task | Status | Verification |
+|---|---|---|---|
+| EB-1 | Independent Engine B pipeline, model registry, immutable predictions with feature snapshots | DONE | test_engine_b.py, run on production copy (130 fixtures) |
+| EB-2 | Goals, 1X2, BTTS, totals, correct score, clean sheets, first scorer | DONE | coherence tests; validation |
+| EB-3 | Corners, cards, shots, shots on target, fouls models | DONE (corners: no skill vs baseline, labelled) | validation |
+| EB-4 | AI Match Analyst reports | DONE | tests + screenshots |
+| EB-5 | Engine B bankroll and ledger (1X2 disabled by evidence) | DONE | ledger/settlement tests |
+| EB-6 | Walk-forward validation A vs B vs baselines vs market | DONE | eb_validation_runs |
+| LV-1 | LiveProvider architecture, snapshots, events, live probabilities | DONE (mock-tested) | test_engine_b.py |
+| LV-2 | football-data.org live (delayed) | DONE; no in-play match yet observed in a scheduled run | real request 2026-11-23 |
+| LV-3 | API-Football live adapter | BLOCKED (needs `API_FOOTBALL_KEY`) | mock tests |
+| CV-1 | Global coverage statuses and API-Football league mapping | DONE | coverage matrix page |
+| EB-7 | Player markets, goal timing, possession, offsides | BLOCKED (provider) | marked unavailable |
+| EB-8 | Optional LLM rephrasing layer | TODO (no key; deterministic reports work) | — |
+| EB-9 | Improve Engine B 1X2 (stack with A? calibration) | TODO | must beat A out of sample |

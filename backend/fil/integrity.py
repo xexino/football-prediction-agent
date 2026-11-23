@@ -8,11 +8,12 @@ from pathlib import Path
 from .config import settings
 
 MANIFEST_TABLES = ("fixtures", "odds_observations", "predictions", "value_assessments", "virtual_bets",
-                   "settlements", "bankroll_transactions")
+                   "settlements", "bankroll_transactions", "eb_predictions", "eb_bets", "eb_settlements",
+                   "eb_bankroll_transactions", "eb_live_snapshots")
 from .db import IMMUTABLE
 
 REQUIRED_TRIGGERS = tuple(f"trg_{t}_{k}" for t in IMMUTABLE for k in ("noupdate", "nodelete")) + (
-    "trg_bets_no_resettle", "trg_bets_prekickoff")
+    "trg_bets_no_resettle", "trg_bets_prekickoff", "trg_eb_bets_no_resettle", "trg_eb_bets_prekickoff")
 
 
 def manifest(db_path: Path | str | None = None) -> dict:
@@ -72,7 +73,21 @@ def check_database(db_path: Path | str | None = None) -> dict:
                                  "OR away_goals<0 OR home_goals>20 OR away_goals>20)").fetchone()[0]
         if bad_scores:
             problems.append(f"{bad_scores} finished fixtures with invalid scores")
-        counts = {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in MANIFEST_TABLES}
+        # Engine B ledger: same reconciliation, completely separate tables
+        if con.execute("SELECT name FROM sqlite_master WHERE name='eb_bankroll_transactions'").fetchone():
+            bal = 0.0
+            for _id, amt, after in con.execute("SELECT id, amount, balance_after FROM eb_bankroll_transactions ORDER BY id"):
+                bal = round(bal + amt, 2)
+                if abs(bal - after) > 0.005:
+                    problems.append(f"Engine B bankroll chain broken at tx {_id}")
+                    break
+            nb = con.execute("SELECT COUNT(*) FROM eb_bets").fetchone()[0]
+            ns = con.execute("SELECT COUNT(*) FROM eb_bankroll_transactions WHERE tx_type='stake'").fetchone()[0]
+            if nb != ns:
+                problems.append(f"Engine B: {nb} bets but {ns} stake transactions")
+        counts = {t: (con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                      if con.execute("SELECT name FROM sqlite_master WHERE name=?", (t,)).fetchone() else 0)
+                  for t in MANIFEST_TABLES}
     finally:
         con.close()
     return {"ok": not problems, "problems": problems, "counts": counts}
@@ -89,7 +104,9 @@ def guard_replace(new_db: str, old_manifest_json: str | None) -> tuple[bool, str
     old = json.loads(old_manifest_json)
     new = chk["counts"]
     shrunk = {t: (old[t], new.get(t, 0)) for t in ("predictions", "virtual_bets", "settlements", "bankroll_transactions",
-                                                 "value_assessments") if new.get(t, 0) < old.get(t, 0)}
+                                                 "value_assessments", "eb_predictions", "eb_bets", "eb_settlements",
+                                                 "eb_bankroll_transactions", "eb_live_snapshots")
+              if new.get(t, 0) < old.get(t, 0)}
     if shrunk:
         return False, f"immutable tables would shrink (old, new): {shrunk}"
     return True, "ok"

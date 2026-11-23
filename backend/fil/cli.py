@@ -130,8 +130,17 @@ def export_static(out: Path):
         "predictions": api.predictions(limit=2000), "bets": api.bets(limit=5000), "analytics": api.analytics(),
         "sources": api.sources(), "system": api.system(), "health_detail": api.health_detail(), "standings": api.standings(), "reports": api.get_reports(limit=30), "meta": api.meta(),
     }
+    from . import api_b
+
+    snap.update(insights=api_b.insights(), engine_b_performance=api_b.performance(), engine_compare=api_b.compare(),
+                coverage_matrix=api_b.coverage_matrix())
     for k, v in snap.items():
         (data / f"{k}.json").write_text(json.dumps(v, default=str))
+    (data / "insights").mkdir(exist_ok=True)
+    for it in snap["insights"]["items"]:
+        (data / "insights" / f"{it['id']}.json").write_text(json.dumps(api_b.insight_detail(it["id"]), default=str))
+    (data / "engine_b").mkdir(exist_ok=True)
+    (data / "engine_b" / "performance.json").write_text(json.dumps(snap["engine_b_performance"], default=str))
     (out / "static-mode.json").write_text(json.dumps({"static": True, "exported_at": snap["health"]["time_utc"]}))
     print(f"exported {len(snap)} endpoints to {data}")
 
