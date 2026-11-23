@@ -41,6 +41,20 @@ class FetchResult:
     headers: dict = field(default_factory=dict)
 
 
+def error_kind(message: str) -> str:
+    """Classify a provider failure so the dashboard never presents an outage as 'no data'."""
+    m = (message or "").lower()
+    if "not configured" in m or "missing" in m and "key" in m:
+        return "missing_credentials"
+    if "429" in m or "rate limit" in m or "quota" in m:
+        return "rate_limited"
+    if "401" in m or "403" in m or "access denied" in m or "token" in m:
+        return "auth_failed"
+    if "malformed" in m or "invalid" in m or "json" in m or "parse" in m or "unexpected" in m:
+        return "invalid_response"
+    return "unavailable"
+
+
 class Provider:
     key: str = "base"
     name: str = "Base"
@@ -100,6 +114,7 @@ class Provider:
                 from ..security import redact
 
                 ds.status, ds.last_error_at, ds.last_error = "error", now, redact(error or "")[:1000]
+                info["last_error_kind"] = error_kind(error or "")
                 circ["failures"] = circ.get("failures", 0) + 1
                 if circ["failures"] >= CIRCUIT_THRESHOLD:
                     circ["open_until"] = (now + timedelta(hours=CIRCUIT_COOLDOWN_H)).isoformat()

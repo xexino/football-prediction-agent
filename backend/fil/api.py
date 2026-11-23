@@ -133,6 +133,14 @@ def _bet_dict(b: VirtualBet, f: Fixture, teams, comps, st: Settlement | None = N
 
 
 # ------------------------------------------------------------------ endpoints
+@app.get("/api/ops_status")
+def ops_status():
+    """Pipeline status is produced by the GitHub Actions Autopilot (data/ops_status.json on the static site).
+    A local server reports that it has none instead of inventing one."""
+    return {"current": None, "notes": "Running as a local server: the in-process scheduler drives jobs; "
+                                       "see System Health → recent job runs."}
+
+
 @app.get("/api/health")
 def health():
     try:

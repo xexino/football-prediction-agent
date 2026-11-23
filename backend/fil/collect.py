@@ -112,20 +112,31 @@ def collect_fixtures() -> dict:
     out["football_data_org"] = collect_fdorg("quick")
     oapi = provider("the_odds_api")
     if oapi.configured:
-        n = 0
-        for code in ODDS_API_SPORTS:
-            try:
-                recs = oapi.odds(code)
-                n += len(recs)
-                ingest_records(recs, oapi.key)
-            except NotConfigured:
-                break
-            except ProviderError as e:
-                oapi.mark_error(f"{code}: {e}", requests=1)
-        oapi.mark_success(records=n, requests=len(ODDS_API_SPORTS), quota=getattr(oapi, "last_quota", None))
-        out["the_odds_api"] = {"records": n}
+        out["the_odds_api"] = collect_odds_api(oapi)
     return out
 
+
+
+def collect_odds_api(oapi=None) -> dict:
+    """The Odds API: one recorded outcome per run (council DP-3). Previously mark_success ran after mark_error and
+    reset the failure count, so the circuit breaker could never open and outages showed as healthy."""
+    oapi = oapi or provider("the_odds_api")
+    n, errs, ok_calls = 0, [], 0
+    for code in ODDS_API_SPORTS:
+        try:
+            recs = oapi.odds(code)
+            n += len(recs)
+            ok_calls += 1
+            ingest_records(recs, oapi.key)
+        except NotConfigured:
+            break
+        except ProviderError as e:
+            errs.append(f"{code}: {e}")
+    if errs and not ok_calls:
+        oapi.mark_error("; ".join(errs)[:900], requests=len(errs))
+    else:
+        oapi.mark_success(records=n, requests=ok_calls + len(errs), quota=getattr(oapi, "last_quota", None))
+    return {"records": n, "errors": errs} if errs else {"records": n}
 
 def collect_international() -> dict:
     p = provider("intl_results")

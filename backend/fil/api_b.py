@@ -79,7 +79,8 @@ def insights(days_back: int = 3, days_forward: int = 7):
                 # unpredicted upcoming fixture: list it with its coverage status only
                 pass
             lv = live.get(f.id)
-            recent_live = lv is not None and now - lv.created_at < timedelta(hours=3)
+            # a match is shown as "live" only while snapshots keep arriving (council LV-2: was 3 h after the last one)
+            recent_live = lv is not None and now - lv.created_at < timedelta(minutes=45)
             phase = ("finished" if f.status == "finished" else
                      "live" if recent_live and lv.status in ("live", "halftime") and lv.data_label != "STALE" else
                      "upcoming" if f.kickoff_utc > now else "awaiting_result")
