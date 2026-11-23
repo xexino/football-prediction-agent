@@ -3,6 +3,14 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "version tag to create (e.g. v2.0.0); notes are read from docs/releases/<tag>.md"
+        required: true
+      target:
+        description: "commit or branch to tag"
+        default: main
 permissions:
   contents: write
 jobs:
@@ -14,7 +22,13 @@ jobs:
       - uses: actions/checkout@v4
       - name: Create release
         run: |
-          NOTES="docs/releases/${GITHUB_REF_NAME}.md"
+          TAG="${{ github.event.inputs.tag }}"; TAG="${TAG:-$GITHUB_REF_NAME}"
+          NOTES="docs/releases/${TAG}.md"
           [ -f "$NOTES" ] || { echo "::error::missing $NOTES"; exit 1; }
-          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && { echo "release exists"; exit 0; }
-          gh release create "$GITHUB_REF_NAME" --title "$(head -1 "$NOTES" | sed 's/^# //')" --notes-file "$NOTES" --verify-tag
+          gh release view "$TAG" >/dev/null 2>&1 && { echo "release $TAG already exists — not modified"; exit 0; }
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            # creates the tag on the target commit server-side (never moves or deletes existing tags)
+            gh release create "$TAG" --target "${{ github.event.inputs.target }}" --title "$(head -1 "$NOTES" | sed 's/^# //')" --notes-file "$NOTES"
+          else
+            gh release create "$TAG" --title "$(head -1 "$NOTES" | sed 's/^# //')" --notes-file "$NOTES" --verify-tag
+          fi
