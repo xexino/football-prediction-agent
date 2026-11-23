@@ -1,5 +1,6 @@
 import { useApi } from "../hooks";
 import { Card, Loading, State, Status, ago, romeTime } from "../ui";
+import { GithubRunsCard, PipelineCard } from "./OpsPanels";
 
 export default function System() {
   const { data, error } = useApi<any>("system", 30000);
@@ -11,6 +12,7 @@ export default function System() {
   return (
     <>
       <div className="topbar"><div><h1>System Health</h1><div className="sub">Scheduler, jobs, database and recent errors · refresh 30s</div></div></div>
+      <div className="grid g2"><PipelineCard /><GithubRunsCard /></div>
       {!hd ? <Card title="Overall health"><div className="empty">Loading health…</div></Card> :
       <Card title={<>Overall health <State s={hd?.overall} /></>} right={<span className="muted mono">computed {ago(hd?.computed_at)}</span>}>
         <div className="grid g4">
@@ -29,14 +31,14 @@ export default function System() {
           ))}
         </div>
         <p className="muted" style={{ fontSize: 11, marginBottom: 0 }}>
-          {hd && Object.entries(hd.states).map(([k, v]: any) => `${k}: ${v}`).join(" · ")}. Health is judged on the age of the last <i>successful</i> work, not on whether a job exited.
+          {hd && Object.entries(hd.states).map(([k, v]: any) => `${k}: ${v}`).join(" · ")}. Health is judged on the age of the last <i>successful</i> work, not on whether a job exited. Times are shown in Rome time; the Autopilot schedule runs in UTC.
         </p>
       </Card>}
       <Card title="Providers">
         <table><thead><tr><th>Provider</th><th>State</th><th>Last success</th><th>Circuit breaker</th><th>Last error</th></tr></thead>
           <tbody>{hd && Object.entries(hd.providers).map(([k, p]: any) => <tr key={k}><td className="mono">{k}</td><td><State s={p.state} />{!p.configured && <span className="muted"> no API key</span>}</td><td className="mono">{ago(p.last_success)}</td>
             <td className="mono" style={{ fontSize: 11 }}>{p.circuit?.open_until ? <span className="neg">OPEN until {romeTime(p.circuit.open_until)}</span> : `closed${p.circuit?.failures ? ` (${p.circuit.failures} recent failures)` : ""}`}</td>
-            <td className="neg" style={{ fontSize: 11 }}>{p.last_error || ""}</td></tr>)}</tbody></table>
+            <td className="neg" style={{ fontSize: 11 }}>{p.error_kind && <b>{p.error_kind.replace(/_/g, " ")}: </b>}{p.last_error || ""}</td></tr>)}</tbody></table>
       </Card>
       <div className="grid g2" style={{ marginTop: 12 }}>
         <Card title="Scheduled jobs (Europe/Rome)">
