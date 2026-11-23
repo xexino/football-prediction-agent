@@ -1,0 +1,20 @@
+# Creates a GitHub release when a version tag (v*) is pushed, using docs/releases/<tag>.md as notes.
+name: Release
+on:
+  push:
+    tags: ["v*"]
+permissions:
+  contents: write
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create release
+        run: |
+          NOTES="docs/releases/${GITHUB_REF_NAME}.md"
+          [ -f "$NOTES" ] || { echo "::error::missing $NOTES"; exit 1; }
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 && { echo "release exists"; exit 0; }
+          gh release create "$GITHUB_REF_NAME" --title "$(head -1 "$NOTES" | sed 's/^# //')" --notes-file "$NOTES" --verify-tag

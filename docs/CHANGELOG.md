@@ -1,5 +1,26 @@
 # Changelog
 
+## v2.0.0 — 2026-11-23 — AI Match Insights (Engine B) + live-data foundation
+* **Engine B** (`eb-insights 1.0.0`), fully independent of Engine A:
+  * feature-based Poisson GLMs for goals, corners, cards, shots, shots on target and fouls; Dixon-Coles correction;
+    negative-binomial totals;
+  * markets: 1X2, double chance, BTTS, O/U 0.5–4.5, correct-score matrix, clean sheets, first scorer, expected goals,
+    corners and cards lines, team lines, league red-card rate; unsupported markets marked unavailable.
+* **AI Match Analyst:** evidence-only deterministic reports (supporting and contradicting factors, missing information,
+  Engine A vs B vs market).
+* **Engine B virtual bankroll:** €100, medium risk, own ledger. 1X2 selections disabled after a significantly negative
+  validation result.
+* **Live mode:** provider-agnostic `LiveProvider` layer; football-data.org delayed scores (active); API-Football adapter
+  (mock-tested, awaiting key); timestamped live snapshots, events and in-play probabilities; LIVE/DELAYED/STALE labels;
+  live job every 20 min.
+* **Global coverage:** 63 competitions with FULL / PARTIAL / FIXTURES AND RESULTS ONLY / LIVE SCORES ONLY /
+  COVERAGE ONLY / UNAVAILABLE status, plus API-Football league mapping.
+* **Validation:** walk-forward Engine A vs B vs baselines vs market on 4,845 identical matches.
+* **Dashboard:** new "AI MATCH INSIGHTS" section with Match Insights (filters, live/upcoming/recent), match detail
+  (analyst, matrix, markets, A vs B, live timeline), Engine A vs B, Engine B track record, and Global coverage & live data.
+* Engine A unchanged (zero diff in its modules; golden regression test).
+* Tests: 91 → 110 backend tests; Playwright smoke test extended to 12 pages + match detail + mobile.
+
 ## 2026-11-22 — football-data.org integration
 * New `providers/football_data_org.py` client: X-Auth-Token header, adaptive throttling from `X-Requests-Available-Minute`
   and `X-RequestCounter-Reset`, 429 backoff, retries with stale-cache fallback, invalid-token (HTTP 400) and plan-limit

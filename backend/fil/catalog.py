@@ -74,6 +74,37 @@ COMPETITIONS = [
          sources={"intl": ["AFC Asian Cup", "AFC Asian Cup qualification"]}),
 ]
 
+# Competitions with no free data source yet: listed so coverage is explicit (status UNAVAILABLE until a
+# provider such as API-Football is configured). Never predicted without data.
+COMPETITIONS += [
+    dict(code="BRA2", name="Brasileirão Série B", country="Brazil", region="Americas", priority=2, sources={}),
+    dict(code="USA2", name="USL Championship", country="USA", region="Americas", priority=3, sources={}),
+    dict(code="LIB", name="Copa Libertadores", country="South America", region="Americas", kind="cup", priority=1, sources={}),
+    dict(code="SUD", name="Copa Sudamericana", country="South America", region="Americas", kind="cup", priority=2, sources={}),
+    dict(code="CONCCL", name="CONCACAF Champions Cup", country="North America", region="Americas", kind="cup", priority=2, sources={}),
+    dict(code="KSA1", name="Saudi Pro League", country="Saudi Arabia", region="Asia", priority=1, sources={}),
+    dict(code="KOR1", name="K League 1", country="South Korea", region="Asia", priority=2, sources={}),
+    dict(code="AUS1", name="A-League", country="Australia", region="Asia", priority=2, sources={}),
+    dict(code="IND1", name="Indian Super League", country="India", region="Asia", priority=3, sources={}),
+    dict(code="ALG1", name="Algerian Ligue 1", country="Algeria", region="Africa", priority=2, sources={}),
+    dict(code="NGA1", name="Nigeria Premier Football League", country="Nigeria", region="Africa", priority=2, sources={}),
+]
+
+# API-Football v3 league ids (from the provider's documentation; to be re-checked once API_FOOTBALL_KEY is set)
+APIF_IDS = {
+    "ENG1": 39, "ENG2": 40, "ENG3": 41, "ENG4": 42, "ENG5": 43, "ESP1": 140, "ESP2": 141, "ITA1": 135, "ITA2": 136,
+    "GER1": 78, "GER2": 79, "FRA1": 61, "FRA2": 62, "NED1": 88, "POR1": 94, "BEL1": 144, "TUR1": 203, "SCO1": 179,
+    "GRE1": 197, "UCL": 2, "UEL": 3, "UECL": 848, "CAFCL": 12, "CAFCC": 20, "EGY1": 233, "MAR1": 200, "RSA1": 288,
+    "TUN1": 202, "ALG1": 186, "NGA1": 399, "BRA1": 71, "BRA2": 72, "ARG1": 128, "LIB": 13, "SUD": 11, "USA1": 253,
+    "USA2": 255, "MEX1": 262, "CONCCL": 16, "KSA1": 307, "JPN1": 98, "KOR1": 292, "AUS1": 188, "IND1": 323,
+    "AFCON": 6, "WCQ": 1, "UNL": 5, "COPA": 9, "INTFR": 10, "SWE1": 113, "NOR1": 103, "DEN1": 119, "AUT1": 218,
+    "SUI1": 207, "POL1": 106, "ROU1": 283, "FIN1": 244, "IRL1": 357, "CHN1": 169,
+}
+for _c in COMPETITIONS:
+    if _c["code"] in APIF_IDS:
+        _c["sources"] = {**_c["sources"], "apif": APIF_IDS[_c["code"]]}
+APIF_LEAGUE = {v: k for k, v in APIF_IDS.items()}
+
 BY_CODE = {c["code"]: c for c in COMPETITIONS}
 FD_UK_DIV = {c["sources"]["fd_uk"]: c["code"] for c in COMPETITIONS if "fd_uk" in c["sources"]}
 FD_UK_NEW = {c["sources"]["fd_uk_new"]: c["code"] for c in COMPETITIONS if "fd_uk_new" in c["sources"]}

@@ -28,6 +28,16 @@ An autonomous football research, prediction and **virtual** betting laboratory. 
 | Live in-play data | ❌ None connected. All data is pre-match or periodically refreshed (labelled) |
 | UEFA cups, CAF & African leagues, national teams | ⚠️ Fixtures are discovered, but these competitions are **ineligible** (not enough free history/odds). Adding API keys unlocks more |
 
+## AI Match Insights (Engine B), new in v2.0.0
+An independent second engine with its own models, records and €100 virtual bankroll. It covers goals, BTTS, totals,
+correct score, corners, cards and shots, and writes an evidence-only **AI Match Analyst** report for every fixture.
+The release also adds a **live mode** layer (football-data.org delayed scores now; full live data with
+`API_FOOTBALL_KEY`) and a global coverage matrix.
+
+See [`docs/AI_INSIGHTS_ENGINE.md`](docs/AI_INSIGHTS_ENGINE.md), [`docs/AI_INSIGHTS_VALIDATION.md`](docs/AI_INSIGHTS_VALIDATION.md),
+[`docs/LIVE_DATA.md`](docs/LIVE_DATA.md), [`docs/PROVIDER_COMPARISON.md`](docs/PROVIDER_COMPARISON.md) and
+[`docs/AI_INSIGHTS_OPERATIONS.md`](docs/AI_INSIGHTS_OPERATIONS.md).
+
 ## Quick start (any machine with Python 3.11+ and Node 18+)
 
 ```bash
@@ -53,7 +63,7 @@ The dashboard is built into `backend/fil/static` and served by the same process 
 | `python -m fil backtest --step 14` | Walk-forward backtest |
 | `python -m fil backup` / `python -m fil restore <file>` | Backup / restore |
 | `python -m fil export-static ../site` | Read-only dashboard snapshot (for GitHub Pages) |
-| `python -m pytest -q` | 70 backend tests (unit, DB, ingestion, settlement, reliability, integrity, health, lifecycle, API) |
+| `python -m pytest -q` | 110 backend tests (Engine A + Engine B, reliability, integrity, live, security, API) |
 | `node frontend/e2e/smoke.cjs http://localhost:8000` | Browser end-to-end test of all 8 pages + mobile layout (Playwright) |
 
 ## Configuration

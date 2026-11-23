@@ -34,7 +34,7 @@ def _steps_results():
 
 def _steps_fixtures():
     return [("fixtures", collect.collect_fixtures, False),
-            ("predict", lambda: pipeline.predict_upcoming(), True)]
+            ("predict", lambda: pipeline.predict_upcoming(), True)] + EB_STEPS + [("eb_live", _eb("live"), False)]
 
 
 def _steps_daily():
@@ -49,10 +49,27 @@ def _steps_daily():
         ("retrain", lambda: _retrain(), False),
         ("predict", lambda: pipeline.predict_upcoming(), True),
         ("coverage", lambda: len(coverage.assess_coverage(pipeline.get_engine())), False),
+        ("eb_retrain", _eb("retrain"), False),
+        *EB_STEPS,
+        ("eb_live", _eb("live"), False),
         ("integrity", lambda: _integrity(), True),
         ("report", reports.daily_report, False),
         ("backup", lambda: str(backup.backup(verify=True).name), False),
     ]
+
+
+def _eb(fn_name):
+    """Engine B steps are NON-critical: a failure there can never mark Engine A's run as failed."""
+    def run():
+        from .engine_b import betting as eb_betting, live as eb_live, pipeline as eb_pipeline
+
+        return {"predict": lambda: eb_pipeline.predict_upcoming(), "settle": eb_betting.settle_pending,
+                "evaluate": eb_pipeline.evaluate, "live": eb_live.poll,
+                "retrain": lambda: {"markets": sorted({m for m, _ in eb_pipeline.get_model(force=True)[0].glm})}}[fn_name]()
+    return run
+
+
+EB_STEPS = [("eb_settle", _eb("settle"), False), ("eb_evaluate", _eb("evaluate"), False), ("eb_predict", _eb("predict"), False)]
 
 
 def _steps_weekly():
@@ -61,7 +78,13 @@ def _steps_weekly():
     def bt():
         r = run_backtest()
         return {"ensemble": r["metrics"].get("ensemble"), "strategy": r["strategy"]}
-    return [("backtest", bt, False), ("weekly_report", reports.weekly_report, False)]
+    def eb_val():
+        from .engine_b import validation
+
+        r = validation.run()
+        return {"engine_b": r["metrics_1x2"].get("engine_b"), "engine_a": r["metrics_1x2"].get("engine_a"),
+                "strategy": r["strategy_engine_b"]}
+    return [("backtest", bt, False), ("eb_validation", eb_val, False), ("weekly_report", reports.weekly_report, False)]
 
 
 def _steps_bootstrap():
@@ -90,6 +113,8 @@ JOBS = {
     "results": _steps_results,
     "prematch_review": lambda: [("predict", lambda: pipeline.predict_upcoming(), True)],
     "weekly": _steps_weekly,
+    "live": lambda: [("eb_live", _eb("live"), False)],
+    "engine_b": lambda: [("eb_retrain", _eb("retrain"), False)] + EB_STEPS,
     "backup": lambda: [("backup", lambda: str(backup.backup(verify=True)), True)],
 }
 

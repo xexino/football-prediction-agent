@@ -44,6 +44,10 @@ app = FastAPI(title="Football Intelligence Lab", version=__version__, lifespan=l
               description="Football research & VIRTUAL betting simulation. No real money is ever involved.")
 app.add_middleware(GZipMiddleware, minimum_size=1000)
 
+from .api_b import router as engine_b_router  # noqa: E402  (Engine B: separate, read-only router)
+
+app.include_router(engine_b_router)
+
 
 # ------------------------------------------------------------------ helpers
 def _teams(s) -> dict:

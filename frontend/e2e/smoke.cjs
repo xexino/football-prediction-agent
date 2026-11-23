@@ -4,7 +4,8 @@ const { chromium } = require("playwright");
 const base = process.argv[2] || "http://localhost:8000";
 const shots = process.argv[3];
 const pages = [["", "Overview"], ["upcoming", "Upcoming Matches"], ["predictions", "Predictions"], ["slip", "Virtual Bet Slip"],
-  ["history", "Results & History"], ["analytics", "Analytics"], ["sources", "Data Sources & Coverage"], ["system", "System Health"]];
+  ["history", "Results & History"], ["analytics", "Analytics"], ["sources", "Data Sources & Coverage"], ["system", "System Health"],
+  ["insights", "AI Match Insights"], ["compare", "Engine A vs Engine B"], ["engine-b", "Engine B — track record"], ["coverage", "Global coverage & live data"]];
 (async () => {
   const browser = await chromium.launch();
   const ctx = await browser.newContext({ viewport: { width: 1440, height: 1000 }, deviceScaleFactor: 1 });
@@ -29,8 +30,26 @@ const pages = [["", "Overview"], ["upcoming", "Upcoming Matches"], ["predictions
   const row = await page.$("tr.fixture-row:has(.probbar)");
   if (!row) { console.log("FAIL  no predicted fixture row found"); fail++; }
   if (row) { await row.click(); await page.waitForSelector("tr.detail", { timeout: 5000 }); console.log("PASS  upcoming row expands"); if (shots) await page.screenshot({ path: `${shots}/upcoming-detail.png` }); }
+  // AI match detail: open the first analysed match card
+  await page.goto(`${base}/#/insights`, { waitUntil: "networkidle" });
+  await page.waitForSelector("a.ai-card", { timeout: 15000 }).catch(() => null);
+  const card = await page.$("a.ai-card:has(.tri)");
+  if (!card) { console.log("FAIL  no analysed match card"); fail++; } else {
+    await card.click();
+    await page.waitForSelector("text=AI Match Analyst", { timeout: 15000 });
+    const hasMatrix = await page.$("table.cs-matrix");
+    console.log(`${hasMatrix ? "PASS" : "FAIL"}  match detail shows analyst report + score matrix`);
+    if (!hasMatrix) fail++;
+    if (shots) await page.screenshot({ path: `${shots}/insight-detail.png`, fullPage: true });
+  }
   // mobile layout: no horizontal overflow
   await page.setViewportSize({ width: 390, height: 844 });
+  for (const r of ["", "insights", "engine-b"]) {
+    await page.goto(`${base}/#/${r}`, { waitUntil: "networkidle" });
+    const of = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+    if (of) { console.log(`FAIL  mobile overflow on /#/${r}`); fail++; }
+    if (shots && r === "insights") await page.screenshot({ path: `${shots}/mobile-insights.png` });
+  }
   await page.goto(`${base}/#/`, { waitUntil: "networkidle" });
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   console.log(`${overflow ? "FAIL" : "PASS"}  mobile width has no horizontal page scroll`);
