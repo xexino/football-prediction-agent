@@ -58,17 +58,29 @@ def restore(path: Path) -> None:
 
     if dbmod._engine is not None:  # release open connections/WAL before replacing the file
         dbmod._engine.dispose()
+    # 1. decompress into a temporary file NEXT TO the target and validate it there; the live database is not
+    #    touched unless the candidate passes (a failed restore leaves the original intact).
+    import os
+
+    from .integrity import check_database
+
+    cand = target.with_name(target.name + ".restore-candidate")
+    opener = gzip.open if path.suffix == ".gz" else open
+    try:
+        with opener(path, "rb") as f, open(cand, "wb") as g:
+            shutil.copyfileobj(f, g)
+        res = check_database(cand, pre_migration=True)  # backups may predate triggers added by later releases
+    except Exception as exc:  # unreadable gzip / truncated file
+        cand.unlink(missing_ok=True)
+        raise RuntimeError(f"backup could not be read: {exc}") from exc
+    if not res["ok"]:
+        cand.unlink(missing_ok=True)
+        raise RuntimeError(f"restored database failed integrity checks: {res['problems']}")
+    # 2. keep a copy of the current database, then swap atomically
     if target.exists():
         shutil.copy2(target, target.with_suffix(f".before-restore-{utcnow():%Y%m%dT%H%M%S}.db"))
     for suffix in ("-wal", "-shm"):
         p = Path(str(target) + suffix)
         if p.exists():
             p.unlink()
-    opener = gzip.open if path.suffix == ".gz" else open
-    with opener(path, "rb") as f, open(target, "wb") as g:
-        shutil.copyfileobj(f, g)
-    from .integrity import check_database
-
-    res = check_database(target)
-    if not res["ok"]:
-        raise RuntimeError(f"restored database failed integrity checks: {res['problems']}")
+    os.replace(cand, target)

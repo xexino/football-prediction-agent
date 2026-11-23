@@ -26,6 +26,7 @@ def main(argv=None):
     sub.add_parser("bootstrap")
     j = sub.add_parser("job")
     j.add_argument("name")
+    j.add_argument("--status-out", help="write the run status (success/partial/error/skipped) to this file")
     b = sub.add_parser("backtest")
     b.add_argument("--step", type=int, default=14)
     sub.add_parser("backup")
@@ -34,12 +35,16 @@ def main(argv=None):
     e = sub.add_parser("export-static")
     e.add_argument("dir")
     sub.add_parser("status")
-    sub.add_parser("integrity")
+    ig = sub.add_parser("integrity", help="read-only check; never creates or repairs anything")
+    ig.add_argument("--pre-migration", action="store_true",
+                    help="only require triggers that every persisted database already has (before `migrate`)")
+    sub.add_parser("migrate", help="create missing tables/triggers (idempotent)")
     m = sub.add_parser("manifest")
     m.add_argument("out")
     g = sub.add_parser("guard", help="exit 1 if DB must not replace the persisted one")
     g.add_argument("db")
     g.add_argument("prev_manifest", nargs="?")
+    g.add_argument("--pre-migration", action="store_true", help="validate a just-restored file before `migrate`")
     rr = sub.add_parser("run-report", help="markdown report of the latest job runs")
     rr.add_argument("--last", type=int, default=1)
     a = ap.parse_args(argv)
@@ -48,12 +53,23 @@ def main(argv=None):
         from .integrity import guard_replace
 
         prev = Path(a.prev_manifest).read_text() if a.prev_manifest and Path(a.prev_manifest).exists() else None
-        ok, why = guard_replace(a.db, prev)
+        ok, why = guard_replace(a.db, prev, pre_migration=a.pre_migration)
         print(("OK: " if ok else "REFUSED: ") + why)
         sys.exit(0 if ok else 1)
 
+    if a.cmd == "integrity":  # must run BEFORE init_db, otherwise missing triggers would be re-created first
+        from .integrity import check_database
+
+        res = check_database(pre_migration=a.pre_migration)
+        print(json.dumps(res, indent=1))
+        sys.exit(0 if res["ok"] else 1)
+
     from .db import init_db
 
+    if a.cmd == "migrate":
+        init_db()
+        print("schema up to date")
+        return
     if a.cmd == "restore":
         from .backup import restore
 
@@ -71,11 +87,20 @@ def main(argv=None):
 
         uvicorn.run("fil.api:app", host=settings.host, port=settings.port, log_level="info")
     elif a.cmd in ("bootstrap", "job"):
-        from .jobs import run_job
+        import os
 
+        from .jobs import recover_stale_runs, run_job
+
+        if os.environ.get("FIL_SINGLE_RUNNER") == "1":
+            # GitHub Actions: runs are serialised by the workflow's concurrency group and each starts from a freshly
+            # restored database, so a 'running' row can only be a leftover of a cancelled/killed run. Without this,
+            # such a row would make every run skip for 90 minutes while exiting 0 (council QA-5).
+            recover_stale_runs()
         res = run_job("bootstrap" if a.cmd == "bootstrap" else a.name, timeout_s=45 * 60)
         print(json.dumps({k: res.get(k) for k in ("status", "error")} | {"report": (res.get("summary") or {}).get("report")},
                          default=str, indent=1)[:6000])
+        if getattr(a, "status_out", None):
+            Path(a.status_out).write_text(str(res.get("status")))
         if res.get("status") == "error":
             sys.exit(1)
     elif a.cmd == "backtest":
@@ -89,12 +114,6 @@ def main(argv=None):
         print(backup())
     elif a.cmd == "export-static":
         export_static(Path(a.dir))
-    elif a.cmd == "integrity":
-        from .integrity import check_database
-
-        res = check_database()
-        print(json.dumps(res, indent=1))
-        sys.exit(0 if res["ok"] else 1)
     elif a.cmd == "manifest":
         from .integrity import manifest
 
