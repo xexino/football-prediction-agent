@@ -25,11 +25,15 @@ SofaScore's NHL tie-up** ([SportCal](https://www.sportcal.com/newsletters/nhl-ag
 ## Recommendation
 1. **Now (free):** football-data.co.uk for history, statistics and odds; football-data.org for fixtures, results,
    standings and Champions League history. Both are integrated. Live mode is a **delayed score only**.
-2. **Next (free, needs your action):** register at API-Football and add the GitHub secret `API_FOOTBALL_KEY`. The
-   adapter is ready:
+2. **Next (free, needs your action, after a quota guard exists):** register at API-Football and add the GitHub secret
+   `API_FOOTBALL_KEY`. Only the **live** adapter exists (`fil/engine_b/live.py`, mock-tested, never run against the
+   real API):
    * one `fixtures?live=all` request per poll (events included), plus statistics for at most 3 covered matches;
-   * at a 20-minute poll interval that stays within 100 requests/day for about 12 h of match time;
-   * it unlocks the live minute, events, statistics, lineups and the African and Asian leagues.
+   * the current schedule (every 20 minutes, 11:00–23:40 UTC, 39 polls) can need **up to ~156 requests/day**, which is
+     above the 100/day free limit. A request budget/quota guard is required first (council item DP-1);
+   * it would add the live minute, events and statistics. It does **not** add lineups, injuries or African/Asian
+     league fixtures: no adapter for those endpoints exists yet, and the free plan's season coverage is unverified.
+   _Corrected 2026-11-23 by the AI Product Council review; the earlier text over-stated what the key unlocks._
 3. **Later (paid, needs your approval):** API-Football Pro (7,500 requests/day) for frequent live polling and full
    global coverage. Alternatively, Sportmonks Starter for selected leagues.
 4. Enterprise feeds (Sportradar, Stats Perform, Genius) need commercial contracts and are not practical for this project.

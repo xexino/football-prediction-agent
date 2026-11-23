@@ -74,7 +74,7 @@ Copy `.env.example` to `.env`. **Every key is optional.**
 |---|---|
 | `FOOTBALL_DATA_ORG_KEY` | Adds football-data.org fixtures/results (Champions League etc.) |
 | `ODDS_API_KEY` | Adds The Odds API prices (more books; UEFA competitions) |
-| `API_FOOTBALL_KEY` | Reserved; the adapter is not implemented yet (injuries/lineups/Africa) |
+| `API_FOOTBALL_KEY` | Enables the API-Football **live** adapter (`fil/engine_b/live.py`: score, minute, events, statistics; implemented and mock-tested, never run against the real API). There is **no** API-Football adapter yet for fixtures, lineups, injuries or African leagues. Add a quota guard before setting the key (see `docs/AI_PRODUCT_COUNCIL_ROADMAP.md`, DP-1) |
 | `FIL_ADMIN_TOKEN` | Enables `POST /api/admin/run/{job}` with header `X-Admin-Token`; disabled when empty |
 | `FIL_SCHEDULER=0` | Disables the in-process scheduler (e.g. when cron or Actions drives jobs) |
 
