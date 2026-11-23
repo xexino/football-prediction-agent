@@ -19,6 +19,7 @@ A recommendation becomes **APPROVED** only after the owner agrees in the council
 | 61–90 | Proven and usable | U-03, U-04, R-06, M-04, L-03, L-04 (if approved), U-05 | ≥ 1,500 evaluated live predictions; scheduled-run success ≥ 95% over 30 days; no 390 px overflow; first monthly re-review |
 
 ### First five tasks
+0. **F-08.** XS. CI is red on `main` because of a date-dependent test; fix it before any other PR so that CI means something again.
 1. **F-01.** XS. It is the only defect that hides an outage from everyone.
 2. **F-02 + F-03.** Must land before the first bet settles; a settled record cannot be repaired afterwards.
 3. **R-01.** Autonomy is unproven: the first scheduled run started about 77 minutes late, and nobody receives failure mail.
@@ -38,6 +39,7 @@ A recommendation becomes **APPROVED** only after the owner agrees in the council
 | F-05 | Odds API error masking (DP-3, QA-16) | `collect.py:121-125` calls `mark_success` after `mark_error`, so the circuit breaker never opens | Call `mark_success` only on success; a 429 doesn't reset the counter | Real provider health; quota protection | P1 | XS | — | none | provider code | none | Test: 3 failed runs → circuit open | pytest | A5 / A9 |
 | F-06 | Settlement edge cases (RK-7, RK-8, QA-6, QA-7) | Postponement ordering; Engine B lacks integrity parity; `merge_duplicates` ignores `eb_*` rows; corrections after settlement not detected | Fix ordering; integrity covers `eb_*`; FK guard in merge; flag score changes after settlement | Correct ledgers in rare cases | P2 | S | F-03, J-5 | none | integrity + merge code | merge regressions | Tests for each case | pytest | A7 / A9 |
 | F-07 | Fix `capabilities["lineups"]=True` and the `others.py:182` text (LV-11, LV-10) | The live adapter claims lineups and a status string says "not yet implemented" | Correct the capability flags and text | Truthful provider status | P1 | XS | — | none | code strings | none | API and coverage page show the correct status | pytest + page check | A5 |
+| F-08 | Date-dependent test failure (found 08:05 UTC while the council PR was in CI) | `tests/test_system.py:132` requires 1X2 probabilities to sum to 1 within 1e-6, but they are stored rounded to 5 dp (`pipeline.py:89`). Today's synthetic fixture gives 1.00001. It fails on `main` @ `3a1ead6` too, so it is unrelated to the docs-only PR #10 | Re-normalise after rounding (largest-remainder), or assert within 5e-5. Pin the test's clock | Green, deterministic CI | P0 | XS | — | none | pipeline rounding + test | none | Test passes on any date (injected `now`) | pytest on 3 fixed dates | A9 |
 
 ### Category 2 — Reliability
 
