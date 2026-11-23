@@ -25,7 +25,7 @@ const NAV = [
 ];
 const NAV_AI = [["/insights", "✦", "Match Insights"], ["/compare", "⇄", "Engine A vs B"], ["/engine-b", "◆", "Engine B record"], ["/coverage", "⊕", "Global coverage"]];
 
-const STATE_CLASS: Record<string, string> = { HEALTHY: "ok", WARNING: "warn", STALE: "warn", FAILED: "err", UNKNOWN: "" };
+const STATE_CLASS: Record<string, string> = { HEALTHY: "ok", DEGRADED: "warn", WARNING: "warn", STALE: "warn", FAILED: "err", UNKNOWN: "" };
 
 function FreshnessBanner({ hd }: { hd: any }) {
   if (!hd) return null;
@@ -42,9 +42,26 @@ function FreshnessBanner({ hd }: { hd: any }) {
   );
 }
 
+/** Pipeline status of the Autopilot run that published this snapshot (data/ops_status.json). */
+function OpsBanner({ ops }: { ops: any }) {
+  const cur = ops?.current;
+  if (!cur || cur.state === "HEALTHY") return null;
+  const failed = cur.state === "FAILED";
+  return (
+    <div className={`banner ${failed ? "banner-err" : "banner-warn"}`}>
+      <b>Pipeline {cur.state}</b>
+      {cur.failure_stage ? <> — the last run failed at the <b>{cur.failure_stage}</b> stage</> : cur.job_status === "partial" ? <> — the last run completed only partly</> : null}
+      {cur.dashboard_data === "previous_snapshot" && <>; the data below is the <b>previous</b> snapshot</>}
+      {ops.consecutive_failures > 1 && <> ({ops.consecutive_failures} failed runs in a row)</>}.{" "}
+      {cur.run_url && <a href={cur.run_url} target="_blank" rel="noreferrer">Run log</a>} · <a href="#/system">System Health</a>
+    </div>
+  );
+}
+
 function Shell() {
   const { data: h } = useApi<any>("health", 30000);
   const { data: hd } = useApi<any>("health_detail", 120000);
+  const { data: ops } = useApi<any>("ops_status", 120000);
   return (
     <div className="app">
       <aside className="side">
@@ -72,6 +89,8 @@ function Shell() {
         </div>
       </aside>
       <main className="main">
+        <div className="mobile-disclaimer"><b>SIMULATION ONLY.</b> Virtual €100 bankroll · no real money · health {hd?.overall ?? "…"} · data {hd ? ago(hd.computed_at) : "—"}</div>
+        <OpsBanner ops={ops} />
         <FreshnessBanner hd={hd} />
         <Routes>
           <Route path="/" element={<Overview />} />

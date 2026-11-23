@@ -9,11 +9,16 @@ from .config import settings
 
 MANIFEST_TABLES = ("fixtures", "odds_observations", "predictions", "value_assessments", "virtual_bets",
                    "settlements", "bankroll_transactions", "eb_predictions", "eb_bets", "eb_settlements",
-                   "eb_bankroll_transactions", "eb_live_snapshots")
+                   "eb_bankroll_transactions", "eb_live_snapshots", "eb_live_events")
 from .db import IMMUTABLE
 
-REQUIRED_TRIGGERS = tuple(f"trg_{t}_{k}" for t in IMMUTABLE for k in ("noupdate", "nodelete")) + (
+# Triggers every persisted database must already have (checked on the raw file BEFORE migrations run,
+# so a removed trigger is detected instead of silently re-created).
+BASE_TRIGGERS = tuple(f"trg_{t}_{k}" for t in IMMUTABLE for k in ("noupdate", "nodelete")) + (
     "trg_bets_no_resettle", "trg_bets_prekickoff", "trg_eb_bets_no_resettle", "trg_eb_bets_prekickoff")
+# Added by later releases; installed by `fil migrate` (init_db) and required afterwards.
+LATER_TRIGGERS = ("trg_bets_settled_frozen", "trg_bets_clv_once", "trg_eb_bets_settled_frozen", "trg_eb_bets_clv_once")
+REQUIRED_TRIGGERS = BASE_TRIGGERS + LATER_TRIGGERS
 
 
 def manifest(db_path: Path | str | None = None) -> dict:
@@ -26,10 +31,18 @@ def manifest(db_path: Path | str | None = None) -> dict:
         con.close()
 
 
-def check_database(db_path: Path | str | None = None) -> dict:
-    path = str(db_path or settings.db_path)
-    con = sqlite3.connect(path)
+def check_database(db_path: Path | str | None = None, pre_migration: bool = False) -> dict:
+    """Read-only integrity check. Never creates or repairs anything (opens the file in read-only mode)."""
+    path = Path(db_path or settings.db_path)
+    if not path.exists() or path.stat().st_size == 0:
+        return {"ok": False, "problems": [f"database file missing or empty: {path}"], "counts": {}}
+    try:
+        con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
+        con.execute("SELECT 1 FROM sqlite_master LIMIT 1").fetchall()
+    except sqlite3.DatabaseError as exc:
+        return {"ok": False, "problems": [f"not a readable SQLite database: {exc}"], "counts": {}}
     problems = []
+    required = BASE_TRIGGERS if pre_migration else REQUIRED_TRIGGERS
     try:
         res = con.execute("PRAGMA quick_check").fetchone()[0]
         if res != "ok":
@@ -38,7 +51,7 @@ def check_database(db_path: Path | str | None = None) -> dict:
         if fk:
             problems.append(f"{len(fk)} foreign-key violations")
         trig = {r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='trigger'")}
-        missing = [t for t in REQUIRED_TRIGGERS if t not in trig]
+        missing = [t for t in required if t not in trig]
         if missing:
             problems.append(f"missing immutability triggers: {missing}")
         # bankroll ledger: balance chain must be consistent
@@ -62,6 +75,10 @@ def check_database(db_path: Path | str | None = None) -> dict:
         paid = con.execute("SELECT COALESCE(SUM(amount),0) FROM bankroll_transactions WHERE tx_type IN ('payout','refund')").fetchone()[0]
         if abs(pay - paid) > 0.01:
             problems.append(f"settlement payouts {pay} != bankroll credits {paid}")
+        mism = con.execute("SELECT COUNT(*) FROM virtual_bets b JOIN settlements s ON s.bet_id=b.id "
+                           "WHERE b.payout IS NULL OR ABS(b.payout - s.payout) > 0.005").fetchone()[0]
+        if mism:
+            problems.append(f"{mism} settled bets whose payout differs from the settlement record")
         late = con.execute("SELECT COUNT(*) FROM virtual_bets WHERE created_at >= kickoff_utc").fetchone()[0]
         if late:
             problems.append(f"{late} bets created at/after kickoff")
@@ -93,10 +110,10 @@ def check_database(db_path: Path | str | None = None) -> dict:
     return {"ok": not problems, "problems": problems, "counts": counts}
 
 
-def guard_replace(new_db: str, old_manifest_json: str | None) -> tuple[bool, str]:
+def guard_replace(new_db: str, old_manifest_json: str | None, pre_migration: bool = False) -> tuple[bool, str]:
     """Return (allowed, reason). Refuse to replace a persisted database with one holding fewer
     immutable records (would silently erase predictions/bets)."""
-    chk = check_database(new_db)
+    chk = check_database(new_db, pre_migration=pre_migration)
     if not chk["ok"]:
         return False, f"new database fails integrity: {chk['problems']}"
     if not old_manifest_json:
@@ -105,7 +122,7 @@ def guard_replace(new_db: str, old_manifest_json: str | None) -> tuple[bool, str
     new = chk["counts"]
     shrunk = {t: (old[t], new.get(t, 0)) for t in ("predictions", "virtual_bets", "settlements", "bankroll_transactions",
                                                  "value_assessments", "eb_predictions", "eb_bets", "eb_settlements",
-                                                 "eb_bankroll_transactions", "eb_live_snapshots")
+                                                 "eb_bankroll_transactions", "eb_live_snapshots", "eb_live_events")
               if new.get(t, 0) < old.get(t, 0)}
     if shrunk:
         return False, f"immutable tables would shrink (old, new): {shrunk}"

@@ -1,44 +1,57 @@
-# Autonomous operation on free GitHub-hosted runners.
+# Autonomous operation on free GitHub-hosted runners. Runbook: docs/reliability/AUTOPILOT_RUNBOOK.md
 #
-# Persistence model (see docs/OPERATIONS.md):
-#   * release `db-latest`  : fil.db.gz + manifest.json (row counts of the immutable tables)
+# Persistence model:
+#   * release `db-latest`  : fil.db.gz + manifest.json (row counts of the immutable tables). The DB is uploaded
+#                            FIRST and the manifest LAST, so an interrupted upload never leaves a manifest that
+#                            describes a database that was not uploaded.
 #   * release `db-backups` : dated, integrity-verified copies from daily runs (14 kept)
-#   * workflow artifact    : every run's database, kept 90 days
+#   * workflow artifact    : the database of every non-live run, kept 30 days
 # Safety rules:
-#   * if `db-latest` exists but cannot be downloaded, the run FAILS — it never falls back to an older
-#     snapshot (that would erase predictions/bets made since);
+#   * if `db-latest` exists but cannot be downloaded or fails validation, the run FAILS: it never falls back to an
+#     older snapshot, never persists, and never exports a dashboard from an empty database;
+#   * the restored database must hold at least as many immutable records as its manifest says (stale-asset check);
 #   * a database is only uploaded if it passes integrity checks AND none of the immutable tables shrank.
-# The dashboard snapshot is always republished (even after a failed job) so the System page shows the
-# problem; the page itself labels data age and staleness.
+#   * the dashboard's operational status (data/ops_status.json) is ALWAYS republished, also after failures, on
+#     top of the last good dashboard data.
+# Schedule routing lives in backend/fil/ops/schedule.py (tested); cron is UTC, no daylight-saving shift.
 name: Autopilot
+run-name: "Autopilot · ${{ github.event.schedule || inputs.job || 'manual' }}"
 on:
   schedule:
-    - cron: "10 5 * * *"        # daily full cycle (≈06:10 Rome)
-    - cron: "40 */3 * * *"      # fixtures/odds + results + pre-match review every 3h
-    - cron: "25 6 * * 1"        # weekly report + walk-forward backtests (Monday)
-    - cron: "*/20 11-23 * * *"  # live-match polling during match hours (respects provider quotas)
+    - cron: "10 5 * * *"            # daily full cycle (06:10 Rome in winter, 07:10 in summer)
+    - cron: "40 */3 * * *"          # results + fixtures/odds + predictions every 3 h
+    - cron: "25 6 * * 1"            # weekly report, backtests, Engine B validation (Monday)
+    - cron: "7,27,47 11-23 * * *"   # live polling; minutes chosen so it never coincides with the :40 run
   workflow_dispatch:
     inputs:
       job:
-        description: "job (daily, fixtures_odds, results, prematch_review, weekly, live, engine_b, bootstrap)"
+        description: "job(s), comma-separated: daily, fixtures_odds, results, prematch_review, weekly, live, engine_b, backup"
         default: daily
 permissions:
-  contents: write
+  contents: write   # publish gh-pages and the db-latest / db-backups release assets
 concurrency:
   group: autopilot
   cancel-in-progress: false
 jobs:
   run:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
-    # Provider API keys are NOT set at job level: they are passed only to the "Run" step below, so they never
-    # reach the frontend build, the dashboard export, the database persist step or the run summary.
+    timeout-minutes: 80
     env:
       FIL_DB_PATH: data/fil.db
       FIL_SCHEDULER: "0"
-      GH_TOKEN: ${{ github.token }}
+      FIL_SINGLE_RUNNER: "1"
+      FIL_JOB_TIMEOUT_S: "1500"   # per backend job (2 jobs max per run) so persist/export/publish always fit in 80 min
+      OPS_RUN_ID: ${{ github.run_id }}
+      OPS_RUN_ATTEMPT: ${{ github.run_attempt }}
+      OPS_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+      OPS_EVENT: ${{ github.event_name }}
+      OPS_SCHEDULE: ${{ github.event.schedule }}
+      OPS_SHA: ${{ github.sha }}
     steps:
+      - name: Record start
+        run: echo "OPS_STARTED_AT=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
+        with: { persist-credentials: false }   # the Run step (provider secrets) must not see a git token
       - uses: actions/setup-python@v5
         with: { python-version: "3.13", cache: pip, cache-dependency-path: backend/requirements.txt }
       - uses: actions/setup-node@v4
@@ -50,94 +63,227 @@ jobs:
           restore-keys: provider-cache-
       - run: pip install -r backend/requirements.txt
       - run: cd frontend && npm ci --no-audit --no-fund && npm run build
+
       - name: Restore database (fail closed)
         id: restore
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           mkdir -p data
-          if gh release view db-latest >/dev/null 2>&1; then
+          # Only an explicit "release not found" means "no database yet". Any other API/network error fails the run:
+          # falling through to the repository snapshot or a bootstrap would later overwrite db-latest with older data.
+          state=unknown
+          for i in 1 2 3; do
+            if out=$(gh release view db-latest --json assets -q '.assets[].name' 2>&1); then state=present; break; fi
+            if echo "$out" | grep -qi "release not found"; then state=absent; break; fi
+            echo "::warning::could not query release db-latest (attempt $i)"; sleep $((i * 15))
+          done
+          [ "$state" != unknown ] || { echo "::error::cannot tell whether db-latest exists — refusing to continue"; exit 1; }
+          echo "OPS_RELEASE_STATE=$state" >> "$GITHUB_ENV"
+          if [ "$state" = present ]; then
+            # fil.db.gz is normally present; fil-next.db.gz is the staging copy of an upload that was interrupted
+            # after --clobber removed fil.db.gz (the stale-asset guard below still validates it against the manifest)
+            asset=fil.db.gz
+            echo "$out" | grep -qx "fil.db.gz" || { asset=fil-next.db.gz; echo "::warning::fil.db.gz missing — using staging copy fil-next.db.gz"; }
+            ok=0
             for i in 1 2 3 4; do
-              gh release download db-latest -p fil.db.gz -p manifest.json -D data --clobber && break
-              echo "download attempt $i failed"; sleep $((i * 15))
+              rm -f data/fil.db.gz data/fil-next.db.gz data/manifest.json
+              if gh release download db-latest -p "$asset" -p manifest.json -D data --clobber && gzip -t "data/$asset"; then ok=1; break; fi
+              echo "::warning::database download attempt $i failed or was truncated"; sleep $((i * 15))
             done
-            [ -f data/fil.db.gz ] || { echo "::error::db-latest exists but could not be downloaded — refusing to continue"; exit 1; }
+            [ "$asset" = fil.db.gz ] || mv "data/$asset" data/fil.db.gz
+            [ "$ok" = 1 ] || { echo "::error::db-latest exists but could not be downloaded intact — refusing to continue (no fallback to an older snapshot)"; exit 1; }
             gunzip -f data/fil.db.gz
             [ -f data/manifest.json ] && mv data/manifest.json data/manifest.prev.json
-            echo "source=release" >> "$GITHUB_OUTPUT"
+            echo "source=release" >> "$GITHUB_OUTPUT"; echo "OPS_RESTORE_SOURCE=release" >> "$GITHUB_ENV"
           elif [ -f data/snapshot/fil.db.gz ]; then
             gunzip -c data/snapshot/fil.db.gz > data/fil.db
-            echo "source=snapshot" >> "$GITHUB_OUTPUT"
+            echo "source=snapshot" >> "$GITHUB_OUTPUT"; echo "OPS_RESTORE_SOURCE=snapshot" >> "$GITHUB_ENV"
           else
-            echo "source=none" >> "$GITHUB_OUTPUT"
+            echo "source=none" >> "$GITHUB_OUTPUT"; echo "OPS_RESTORE_SOURCE=none" >> "$GITHUB_ENV"
           fi
-          cd backend && python -m fil integrity
+          cd backend
+          if [ -f ../data/fil.db ]; then
+            # 1) raw, read-only check BEFORE migrations (a removed trigger is detected, not re-created)
+            python -m fil integrity --pre-migration
+            # 2) the restored file must not be older than its manifest (stale or mismatched asset)
+            if [ -f ../data/manifest.prev.json ]; then python -m fil guard --pre-migration ../data/fil.db ../data/manifest.prev.json; fi
+            # 3) add tables/triggers introduced by newer releases, then the full check
+            python -m fil migrate
+            python -m fil integrity
+          fi
+
       - name: Pick job
         id: pick
+        env:
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          REQUESTED: ${{ inputs.job }}
+          DB_SOURCE: ${{ steps.restore.outputs.source }}
         run: |
-          JOB="${{ github.event.inputs.job }}"
-          if [ "${{ steps.restore.outputs.source }}" = "none" ]; then JOB=bootstrap
-          elif [ -z "$JOB" ]; then
-            case "${{ github.event.schedule }}" in
-              "10 5 * * *") JOB=daily ;;
-              "25 6 * * 1") JOB=weekly ;;
-              "*/20 11-23 * * *") JOB=live ;;
-              *) JOB=results,fixtures_odds ;;
-            esac
-          fi
-          echo "job=$JOB" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          JOB=$(cd backend && python -m fil.ops.schedule)
+          echo "job=$JOB" >> "$GITHUB_OUTPUT"; echo "OPS_JOB=$JOB" >> "$GITHUB_ENV"
+          echo "Routing: event=$EVENT schedule='$SCHEDULE' -> $JOB"
+
       - name: Run
         id: runjob
         env:
+          JOBS: ${{ steps.pick.outputs.job }}
+          # provider keys are passed ONLY to this step (never to build, export, persist or summary steps)
           FOOTBALL_DATA_ORG_KEY: ${{ secrets.FOOTBALL_DATA_ORG_KEY }}
           ODDS_API_KEY: ${{ secrets.ODDS_API_KEY }}
           API_FOOTBALL_KEY: ${{ secrets.API_FOOTBALL_KEY }}
         run: |
-          if [ -n "$FOOTBALL_DATA_ORG_KEY" ]; then echo "football-data.org key: configured"; else echo "::warning::FOOTBALL_DATA_ORG_KEY secret is not set — football-data.org sync will be skipped"; fi
-          cd backend
-          rc=0
-          for j in $(echo "${{ steps.pick.outputs.job }}" | tr ',' ' '); do
-            python -m fil job "$j" || rc=1
+          set -uo pipefail
+          for k in FOOTBALL_DATA_ORG_KEY ODDS_API_KEY API_FOOTBALL_KEY; do
+            if [ -n "${!k}" ]; then echo "$k: configured"; else echo "$k: not configured"; fi
           done
-          exit $rc
+          cd backend
+          worst=success
+          for j in $(echo "$JOBS" | tr ',' ' '); do
+            rm -f /tmp/job.status
+            python -m fil job "$j" --status-out /tmp/job.status; rc=$?
+            st=$(cat /tmp/job.status 2>/dev/null || echo error)
+            [ $rc -ne 0 ] && st=error
+            echo "job $j -> $st"
+            case "$st" in
+              error) worst=error; echo "::error::job $j failed (critical step failed or every step failed)";;
+              partial) [ "$worst" = success ] && worst=partial; echo "::warning::job $j finished PARTIAL (a non-critical step failed — see run report)";;
+              skipped) [ "$worst" = success ] && worst=skipped; echo "::warning::job $j was skipped (another run holds the lease)";;
+            esac
+          done
+          echo "OPS_JOB_STATUS=$worst" >> "$GITHUB_ENV"
+          [ "$worst" != error ]
+
       - name: Persist database (guarded)
-        if: always()
+        id: persist
+        # never persist after a failed or skipped restore: that database is empty or unvalidated
+        if: always() && steps.restore.outcome == 'success' && steps.pick.outcome == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          JOB: ${{ steps.pick.outputs.job }}
         run: |
-          [ -f data/fil.db ] || exit 0
+          set -euo pipefail
+          retry() { for i in 1 2 3; do "$@" && return 0; echo "::warning::attempt $i failed: $*"; sleep $((i * 10)); done; return 1; }
           python - <<'PY'
           import sqlite3; c = sqlite3.connect("data/fil.db"); c.execute("PRAGMA wal_checkpoint(TRUNCATE)"); c.close()
           PY
+          if [ "${OPS_RESTORE_SOURCE:-}" != release ] && [ "${OPS_RELEASE_STATE:-}" != absent ]; then
+            echo "OPS_PERSIST=refused" >> "$GITHUB_ENV"; echo "OPS_PERSIST_DETAIL=database did not come from db-latest" >> "$GITHUB_ENV"
+            echo "::error::refusing to overwrite db-latest with a database that was not restored from it"; exit 1
+          fi
           cd backend
-          python -m fil guard ../data/fil.db ../data/manifest.prev.json
-          python -m fil manifest ../data/manifest.json
+          if ! python -m fil guard ../data/fil.db ../data/manifest.prev.json; then
+            echo "OPS_PERSIST=refused" >> "$GITHUB_ENV"; echo "OPS_PERSIST_DETAIL=guard refused (integrity or shrinking ledger)" >> "$GITHUB_ENV"
+            echo "::error::database NOT persisted: guard refused"; exit 1
+          fi
+          python -m fil manifest ../data/manifest.json > /dev/null
           cd ..
+          python - <<'PY'
+          import sqlite3; c = sqlite3.connect("data/fil.db"); c.execute("PRAGMA wal_checkpoint(TRUNCATE)"); c.close()
+          PY
+          # live polling: upload only if the audit tables changed (saves ~37 MB per 20-minute run)
+          if [ "$JOB" = live ] && [ -f data/manifest.prev.json ] && python - <<'PY'
+          import json, sys
+          a = json.load(open("data/manifest.prev.json")); b = json.load(open("data/manifest.json"))
+          sys.exit(0 if a == b else 1)
+          PY
+          then
+            echo "OPS_PERSIST=unchanged" >> "$GITHUB_ENV"; echo "OPS_PERSIST_DETAIL=live run made no new records" >> "$GITHUB_ENV"
+            echo "live run: no new records, persisted database left unchanged"; exit 0
+          fi
           gzip -kf data/fil.db
           gh release view db-latest >/dev/null 2>&1 || gh release create db-latest --title "Database (latest)" --notes "Automated SQLite snapshot of the Football Intelligence Lab. Do not edit." --latest=false
-          gh release upload db-latest data/fil.db.gz data/manifest.json --clobber
-          if [ "${{ steps.pick.outputs.job }}" = daily ]; then
+          echo "OPS_PERSIST=failed" >> "$GITHUB_ENV"
+          # staging copy first (so a failure between --clobber's delete and re-upload never leaves no database),
+          # then the database, then the manifest last
+          cp data/fil.db.gz data/fil-next.db.gz
+          retry gh release upload db-latest data/fil-next.db.gz --clobber
+          retry gh release upload db-latest data/fil.db.gz --clobber
+          retry gh release upload db-latest data/manifest.json --clobber
+          if [ "$JOB" = daily ]; then
             gh release view db-backups >/dev/null 2>&1 || gh release create db-backups --title "Database backups" --notes "Dated, integrity-verified daily copies (14 kept)." --latest=false
             cp data/fil.db.gz "data/fil-$(date -u +%Y%m%d).db.gz"
-            gh release upload db-backups "data/fil-$(date -u +%Y%m%d).db.gz" --clobber
+            retry gh release upload db-backups "data/fil-$(date -u +%Y%m%d).db.gz" --clobber
             gh release view db-backups --json assets -q '.assets[].name' | sort | head -n -14 | xargs -r -I{} gh release delete-asset db-backups {} -y
           fi
-          echo "PERSISTED=1" >> "$GITHUB_ENV"
+          echo "OPS_PERSIST=persisted" >> "$GITHUB_ENV"
+
       - uses: actions/upload-artifact@v4
-        if: always()
-        with: { name: "fil-db-${{ github.run_id }}", path: data/fil.db.gz, retention-days: 90, if-no-files-found: ignore }
+        if: always() && steps.restore.outcome == 'success' && env.OPS_PERSIST == 'persisted'
+        with: { name: "fil-db-${{ github.run_id }}", path: data/fil.db.gz, retention-days: 30, if-no-files-found: ignore }
+
       - name: Export static dashboard
-        if: always()
-        run: cd backend && python -m fil export-static ../site
-      - name: Publish dashboard to gh-pages (served at https://<owner>.github.io/<repo>/)
-        if: always()
+        id: export
+        # only from a validated, persisted database; otherwise the previous dashboard data stays published
+        if: always() && steps.restore.outcome == 'success' && steps.persist.outcome != 'failure'
         run: |
-          [ -d site ] || exit 0
+          set -euo pipefail
+          rm -rf site.new
+          (cd backend && python -m fil export-static ../site.new)
+          [ -s site.new/data/health.json ] && [ -s site.new/index.html ] || { echo "::error::incomplete dashboard export"; exit 1; }
+          rm -rf site && mv site.new site
+
+      - name: Operational status (always)
+        if: always()
+        env:
+          OPS_RESTORE: ${{ steps.restore.outcome }}
+          OPS_ROUTE: ${{ steps.pick.outcome }}
+          OPS_EXPORT: ${{ steps.export.outcome }}
+          OPS_PERSIST_STEP: ${{ steps.persist.outcome }}
+        run: |
+          set -uo pipefail
+          # the previously published dashboard: carries the run history and is reused if this export did not run
+          rm -rf prev_site
+          for i in 1 2 3; do
+            git clone -q --depth 1 -b gh-pages "${{ github.server_url }}/${{ github.repository }}.git" prev_site && break
+            rm -rf prev_site; echo "::warning::could not read the published dashboard (attempt $i)"; sleep $((i * 10))
+          done
+          mkdir -p prev_site
+          if [ ! -d site ]; then
+            if [ -f prev_site/index.html ]; then cp -r prev_site site && rm -rf site/.git; else mkdir -p site; fi
+            echo "::warning::publishing the previous dashboard data with an updated operational status"
+          fi
+          (cd backend && python -m fil.ops.status --site ../site --prev ../prev_site/data/ops_history.json)
+
+      - name: Publish dashboard to gh-pages
+        id: publish
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # never replace the published site with an incomplete one (e.g. only a status file)
+          for f in site/index.html site/data/health.json site/data/ops_status.json; do
+            [ -s "$f" ] || { echo "::error::refusing to publish an incomplete dashboard ($f missing); the previous one stays online"; exit 1; }
+          done
           cd site && touch .nojekyll
           git init -q -b gh-pages && git add -A
           git -c user.name="fil-autopilot" -c user.email="41898282+github-actions[bot]@users.noreply.github.com" \
-            commit -qm "Dashboard snapshot $(date -u +%Y-%m-%dT%H:%MZ)"
-          # generated branch: replaced on every run so the repository does not grow
-          git push -f "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages
+            commit -qm "Dashboard snapshot $(date -u +%Y-%m-%dT%H:%MZ) (run ${{ github.run_id }})"
+          # generated branch, replaced on every run so the repository does not grow
+          for i in 1 2 3; do
+            git push -q -f "https://x-access-token:${GH_TOKEN}@github.com/${{ github.repository }}.git" gh-pages && exit 0
+            echo "::warning::gh-pages push attempt $i failed"; sleep $((i * 10))
+          done
+          echo "::error::dashboard could not be published"; exit 1
+
       - name: Run report
         if: always()
+        continue-on-error: true   # reporting only; never changes the run's outcome
         run: |
-          cd backend
-          { echo "## Autopilot — ${{ steps.pick.outputs.job }}"; echo; python -m fil run-report --last 3 || true;
-            echo; echo "Database persisted: ${PERSISTED:-0}"; } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Autopilot — ${OPS_JOB:-not routed}"
+            echo
+            echo "| Stage | Outcome |"; echo "|---|---|"
+            echo "| restore | ${{ steps.restore.outcome }} (${OPS_RESTORE_SOURCE:-—}) |"
+            echo "| route | ${{ steps.pick.outcome }} |"
+            echo "| run | ${{ steps.runjob.outcome }} (job status: ${OPS_JOB_STATUS:-none}) |"
+            echo "| persist | ${OPS_PERSIST:-not attempted} ${OPS_PERSIST_DETAIL:+— $OPS_PERSIST_DETAIL} |"
+            echo "| export | ${{ steps.export.outcome }} |"
+            echo "| publish | ${{ steps.publish.outcome }} |"
+            echo
+            if [ -f data/fil.db ] && [ "${{ steps.restore.outcome }}" = success ]; then (cd backend && python -m fil run-report --last 3); fi
+          } >> "$GITHUB_STEP_SUMMARY"

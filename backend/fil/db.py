@@ -597,6 +597,18 @@ def _install_triggers(conn) -> None:
         "CREATE TRIGGER IF NOT EXISTS trg_eb_bets_no_resettle BEFORE UPDATE OF status ON eb_bets "
         "WHEN OLD.status != 'pending' BEGIN SELECT RAISE(ABORT, 'settled bets cannot be changed'); END;"
     ))
+    # Settled-bet results are frozen (council QA-1). Closing price / CLV may be filled exactly once after
+    # settlement (late closing odds); any later change is blocked.
+    for tbl, short in (("virtual_bets", "bets"), ("eb_bets", "eb_bets")):
+        conn.execute(text(
+            f"CREATE TRIGGER IF NOT EXISTS trg_{short}_settled_frozen BEFORE UPDATE OF settled_at, payout, profit ON {tbl} "
+            f"WHEN OLD.status != 'pending' BEGIN SELECT RAISE(ABORT, 'settled bet results are immutable'); END;"
+        ))
+        conn.execute(text(
+            f"CREATE TRIGGER IF NOT EXISTS trg_{short}_clv_once BEFORE UPDATE OF closing_price, clv ON {tbl} "
+            f"WHEN OLD.status != 'pending' AND (OLD.closing_price IS NOT NULL OR OLD.clv IS NOT NULL) "
+            f"BEGIN SELECT RAISE(ABORT, 'closing price / CLV of a settled bet can only be filled once'); END;"
+        ))
     conn.execute(text(
         "CREATE TRIGGER IF NOT EXISTS trg_eb_bets_prekickoff BEFORE INSERT ON eb_bets "
         "WHEN NEW.mode = 'prematch' AND NEW.created_at >= NEW.kickoff_utc "

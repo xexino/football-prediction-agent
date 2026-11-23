@@ -14,8 +14,9 @@ export function Coverage({ s }: { s?: string }) {
 
 export function LiveBadge({ l }: { l?: any }) {
   if (!l) return null;
-  const cls = l.label === "LIVE" ? "b-error" : l.label === "DELAYED" ? "b-inel" : "b-void";
-  return <span className={`badge ${cls}`} title={`${l.provider} · ${l.at}`}>{l.label}{l.minute != null ? ` ${l.minute}'` : ""}{l.score ? ` · ${l.score}` : ""}</span>;
+  const now = liveLabel(l);
+  const cls = now.startsWith("LIVE") ? "b-error" : now.startsWith("DELAYED") ? "b-inel" : "b-void";
+  return <span className={`badge ${cls}`} title={`${l.provider} · snapshot ${l.at}`}>{now}{l.minute != null ? ` · ${l.minute}'` : ""}{l.score ? ` · ${l.score}` : ""}</span>;
 }
 
 export function Tri({ p, labels = ["1", "X", "2"] }: { p?: any; labels?: string[] }) {
@@ -40,4 +41,16 @@ export function SubNav() {
       <Link className="pill" to="/coverage">Global coverage & live data</Link>
     </div>
   );
+}
+
+/** Recompute a live label from its age in the viewer's browser (council LV-1): the static site may be served
+ *  long after the snapshot was taken, so a stored "LIVE" must decay to DELAYED (> 3 min) and STALE (> 30 min). */
+export function liveLabel(l: { label?: string; at?: string; freshness_s?: number | null } | null | undefined): string {
+  if (!l || !l.at) return "UNKNOWN";
+  const ageS = (Date.now() - new Date(l.at).getTime()) / 1000 + (l.freshness_s || 0);
+  const mins = Math.max(0, Math.round(ageS / 60));
+  let label = l.label || "UNKNOWN";
+  if (ageS > 1800) label = "STALE";
+  else if (label === "LIVE" && ageS > 180) label = "DELAYED";
+  return `${label} · ${mins} min old`;
 }

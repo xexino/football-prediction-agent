@@ -1,7 +1,7 @@
 import { useParams, Link } from "react-router-dom";
 import { useApi } from "../../hooks";
 import { Card, Loading, num, pct, romeTime, Status } from "../../ui";
-import { Coverage, SubNav, Tri } from "./common";
+import { Coverage, SubNav, Tri, liveLabel } from "./common";
 
 const SECTION_TITLES: Record<string, string> = {
   assessment: "Overall assessment", goals: "Goals", corners: "Corners", corners_note: "Corners — model reliability",
@@ -86,10 +86,10 @@ export default function InsightDetail() {
         </>
       )}
       <div className="grid g2">
-        <Card title="Live match" right={lastLive && <span className="muted mono" style={{ fontSize: 11 }}>{lastLive.provider} · {lastLive.label}</span>}>
+        <Card title="Live match" right={lastLive && <span className="muted mono" style={{ fontSize: 11 }}>{lastLive.provider} · {liveLabel(lastLive)}</span>}>
           {!data.live.length ? <div className="empty">No live data received for this match. Free-plan football-data.org scores are delayed; full live mode (minute, events, statistics) requires API_FOOTBALL_KEY.</div> : (
             <>
-              <div className="ai-teams mono">{lastLive.score ?? "–"} {lastLive.minute != null ? `· ${lastLive.minute}' (${lastLive.minute_source})` : "· minute not supplied"} · <span className={lastLive.label === "LIVE" ? "neg" : "warn"}>{lastLive.label}</span></div>
+              <div className="ai-teams mono">{lastLive.score ?? "–"} {lastLive.minute != null ? `· ${lastLive.minute}' (${lastLive.minute_source})` : "· minute not supplied"} · <span className={liveLabel(lastLive).startsWith("LIVE") ? "neg" : "warn"}>{liveLabel(lastLive)}</span></div>
               {Object.keys(lastLive.stats || {}).length ? <table><tbody>{Object.entries(lastLive.stats).map(([k, v]: any) => <tr key={k}><td>{k.replace(/_/g, " ")}</td><td className="num">{v.home}</td><td className="num">{v.away}</td></tr>)}</tbody></table>
                 : <p className="muted" style={{ fontSize: 12 }}>The provider supplied no live statistics — none are shown.</p>}
               {lastLive.probs && <p className="mono" style={{ fontSize: 12 }}>Live: 1 {pct(lastLive.probs["1X2"].home, 0)} · X {pct(lastLive.probs["1X2"].draw, 0)} · 2 {pct(lastLive.probs["1X2"].away, 0)} — {lastLive.probs.assumptions}</p>}

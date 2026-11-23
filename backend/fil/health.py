@@ -1,6 +1,6 @@
 """Operational health model.
 
-States: HEALTHY, WARNING, FAILED, STALE, UNKNOWN. A component is judged on what it actually
+States: HEALTHY, DEGRADED, FAILED, STALE, UNKNOWN. A component is judged on what it actually
 produced recently (freshness of its last *successful* work), not on whether a process exited cleanly.
 """
 from __future__ import annotations
@@ -12,7 +12,7 @@ from sqlalchemy import func, select
 from .db import DataSource, Fixture, JobRun, OddsObservation, session_scope
 from .timeutil import iso, utcnow
 
-ORDER = {"HEALTHY": 0, "UNKNOWN": 1, "WARNING": 2, "STALE": 3, "FAILED": 4}
+ORDER = {"HEALTHY": 0, "UNKNOWN": 1, "DEGRADED": 2, "STALE": 3, "FAILED": 4}
 # expected cadence: autopilot every 3h, daily cycle every 24h
 THRESHOLDS = {  # component: (healthy_if_younger_than_h, warning_if_younger_than_h)
     "collection": (8, 30), "predictions": (8, 30), "settlement": (12, 36), "backup": (30, 54),
@@ -25,7 +25,7 @@ def _age_state(ts: datetime | None, comp: str, now: datetime) -> tuple[str, floa
         return "UNKNOWN", None
     age = (now - ts).total_seconds() / 3600
     h, w = THRESHOLDS[comp]
-    return ("HEALTHY" if age < h else "WARNING" if age < w else "STALE"), round(age, 1)
+    return ("HEALTHY" if age < h else "DEGRADED" if age < w else "STALE"), round(age, 1)
 
 
 def _last_step(s, step: str):
@@ -66,7 +66,7 @@ def compute(now: datetime | None = None, include_db_check: bool = True) -> dict:
         if last_any is None:
             comps["last_run"] = {"state": "UNKNOWN"}
         else:
-            comps["last_run"] = {"state": {"success": "HEALTHY", "partial": "WARNING", "error": "FAILED",
+            comps["last_run"] = {"state": {"success": "HEALTHY", "partial": "DEGRADED", "error": "FAILED",
                                            "interrupted": "FAILED"}.get(last_any.status, "UNKNOWN"),
                                  "job": last_any.job, "status": last_any.status, "last": iso(last_any.finished_at),
                                  "failed_steps": [k for k, v in ((last_any.summary or {}).get("steps") or {}).items()
@@ -82,9 +82,18 @@ def compute(now: datetime | None = None, include_db_check: bool = True) -> dict:
                                                               Fixture.kickoff_utc < now + timedelta(days=7)))
         newest_result = s.scalar(select(func.max(Fixture.kickoff_utc)).where(Fixture.status == "finished",
                                                                          Fixture.first_seen_source == "football_data_uk"))
-        comps["fixtures"] = {"state": "HEALTHY" if upcoming else "WARNING", "upcoming_7d": upcoming,
+        comps["fixtures"] = {"state": "HEALTHY" if upcoming else "DEGRADED", "upcoming_7d": upcoming,
                              "newest_result_kickoff": iso(newest_result),
                              "detail": "no upcoming fixtures known" if not upcoming else f"{upcoming} upcoming in 7 days"}
+        # live data: informational (never critical). Age of the newest live snapshot, labelled honestly.
+        from .db import EBLiveSnapshot
+
+        newest_live = s.scalar(select(func.max(EBLiveSnapshot.created_at)))
+        comps["live"] = {"state": "UNKNOWN" if newest_live is None else
+                         ("HEALTHY" if now - newest_live < timedelta(minutes=45) else "DEGRADED"),
+                         "last": iso(newest_live),
+                         "detail": "no live snapshot yet" if newest_live is None else
+                         "newest live snapshot; free-plan feeds are DELAYED, never real-time"}
         providers = {}
         for k, d in ds.items():
             if not d.configured:
@@ -92,11 +101,12 @@ def compute(now: datetime | None = None, include_db_check: bool = True) -> dict:
             elif d.status == "ok":
                 state = "HEALTHY"
             elif d.status == "error":
-                state = "FAILED" if (d.last_success_at is None or now - d.last_success_at > timedelta(hours=30)) else "WARNING"
+                state = "FAILED" if (d.last_success_at is None or now - d.last_success_at > timedelta(hours=30)) else "DEGRADED"
             else:
                 state = "UNKNOWN"
             providers[k] = {"state": state, "configured": d.configured, "last_success": iso(d.last_success_at),
-                            "last_error": (d.last_error or "")[:200] or None, "circuit": (d.quota_info or {}).get("circuit")}
+                            "last_error": (d.last_error or "")[:200] or None, "circuit": (d.quota_info or {}).get("circuit"),
+                            "error_kind": (d.quota_info or {}).get("last_error_kind") if d.status == "error" else None}
     if include_db_check:
         from .integrity import check_database
 
@@ -109,6 +119,6 @@ def compute(now: datetime | None = None, include_db_check: bool = True) -> dict:
     critical = ["collection", "predictions", "settlement", "database", "last_run", "scheduler"]
     overall = max((comps[c]["state"] for c in critical if c in comps), key=lambda x: ORDER[x])
     return {"overall": overall, "components": comps, "providers": providers, "computed_at": iso(now),
-            "states": {"HEALTHY": "working and recent", "WARNING": "degraded or slightly late",
+            "states": {"HEALTHY": "working and recent", "DEGRADED": "partly working, or slightly late",
                        "FAILED": "last attempt failed / integrity problem", "STALE": "no successful update for too long",
                        "UNKNOWN": "never ran or not configured"}}
