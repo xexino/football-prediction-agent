@@ -2,6 +2,7 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 import { useApi } from "../hooks";
 import { Card, Decision, Loading, ProbBar, Quality, Stat, ago, cls, eur, num, pct, romeTime, selLabel, spct, tooltipStyle } from "../ui";
 import { Link } from "react-router-dom";
+import TodayCard from "./TodayCard";
 
 export default function Overview() {
   const { data, error, updated } = useApi<any>("overview", 60000);
@@ -19,7 +20,8 @@ export default function Overview() {
           <span className="pill">{data.model ? `${data.model.name} v${data.model.version}` : "no model"}</span>
         </div>
       </div>
-      <div className="grid g6">
+      <TodayCard />
+      <div className="grid g6" style={{ marginTop: 12 }}>
         <Stat label="Virtual bankroll" value={eur(b.current_bankroll)} delta={`start ${eur(b.starting_bankroll)} · exposure ${eur(b.pending_exposure)}`} />
         <Stat label="Net P/L (settled)" value={eur(b.profit, true)} tone={cls(b.profit)} delta={`staked ${eur(b.staked)}`} />
         <Stat label="ROI" value={spct(b.roi)} tone={cls(b.roi)} delta={`CLV ${spct(b.avg_clv)}`} />
