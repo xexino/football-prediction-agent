@@ -90,6 +90,23 @@ def _clean(x):
     return x
 
 
+_COMPLEMENTS = ({"home", "draw", "away"}, {"over", "under"}, {"yes", "no"})
+
+
+def _renormalise(markets: dict) -> dict:
+    """After rounding to 5 dp, a complementary distribution can sum to 1 ± 1e-5 (CI failure F-08, 2026-11-23).
+    Put the rounding residue on the largest outcome so every distribution sums to exactly 1 (at 5 dp)."""
+    out = {}
+    for k, v in markets.items():
+        if isinstance(v, dict) and set(v) in _COMPLEMENTS and all(isinstance(x, float) for x in v.values()):
+            resid = round(1.0 - sum(v.values()), 5)
+            if 0 < abs(resid) <= 1e-4:
+                top = max(v, key=v.get)
+                v = {**v, top: round(v[top] + resid, 5)}
+        out[k] = v
+    return out
+
+
 def predict_upcoming(engine: Engine | None = None, horizon_days: int = HORIZON_DAYS) -> dict:
     engine = engine or get_engine()
     mv_id = model_version_id()
@@ -129,7 +146,7 @@ def predict_upcoming(engine: Engine | None = None, horizon_days: int = HORIZON_D
             n_min = min(pred["n_home"], pred["n_away"])
             conf = confidence_score(q, pred["components"], n_min)
             assessments = assess(pred, snaps, q, conf, n_min, bool(news), odds_age)
-            probs = _clean(pred["markets"])
+            probs = _renormalise(_clean(pred["markets"]))
             # ---------------------------------------------------------------- revision handling
             latest = s.scalars(select(Prediction).where(Prediction.fixture_id == fx.id)
                                .order_by(Prediction.revision.desc())).first()
