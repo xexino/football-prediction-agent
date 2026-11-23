@@ -1,0 +1,63 @@
+# Independent Autopilot watchdog. It judges the GitHub Actions run history itself, so it notices runs that failed,
+# hung, were cancelled or NEVER STARTED, and raises one de-duplicated GitHub issue (label `autopilot-incident`),
+# which notifies repository watchers. It closes the issue with a recovery note once healthy.
+# Triggers: after every Autopilot run (event-driven, independent of the cron scheduler), hourly, and manually.
+# Known gap: if GitHub stops ALL scheduled workflows, the hourly trigger stops too — see the runbook, section 17.
+name: Autopilot watchdog
+on:
+  workflow_run:
+    workflows: [Autopilot]
+    types: [completed]
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+permissions:
+  actions: read
+  issues: write
+  contents: read
+concurrency:
+  group: watchdog
+  cancel-in-progress: false
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: backend/fil, fetch-depth: 1 }
+      - name: Collect run history
+        run: |
+          set -euo pipefail
+          for i in 1 2 3; do
+            gh api "repos/$GH_REPO/actions/workflows/autopilot.yml/runs?per_page=100" > runs.json && break
+            echo "::warning::GitHub API attempt $i failed"; sleep $((i * 10))
+          done
+          [ -s runs.json ] || { echo "::error::could not read the Autopilot run history"; exit 1; }
+          # the schedule in force since the workflow file last changed (earlier slots are not judged)
+          gh api "repos/$GH_REPO/commits?path=.github/workflows/autopilot.yml&per_page=1" -q '.[0].commit.committer.date' > first_seen.txt || echo "" > first_seen.txt
+          gh label create autopilot-incident --color B60205 --description "Opened/closed automatically by the Autopilot watchdog" 2>/dev/null || true
+          gh issue list --label autopilot-incident --state open --json number,body,comments --limit 5 > issues.json
+      - name: Evaluate
+        run: |
+          set -euo pipefail
+          FS=$(cat first_seen.txt)
+          python3 backend/fil/ops/watchdog.py --runs runs.json --issues issues.json --out decision.json ${FS:+--first-seen "$FS"} >> "$GITHUB_STEP_SUMMARY"
+      - name: Act on decision
+        run: |
+          set -euo pipefail
+          action=$(jq -r '.decision.action' decision.json)
+          echo "watchdog decision: $action (status $(jq -r .status decision.json))"
+          jq -r '.decision.body // empty' decision.json > body.md
+          case "$action" in
+            create)  gh issue create --label autopilot-incident --title "$(jq -r '.decision.title' decision.json)" --body-file body.md ;;
+            comment) gh issue comment "$(jq -r '.decision.issue' decision.json)" --body-file body.md ;;
+            close)   gh issue comment "$(jq -r '.decision.issue' decision.json)" --body-file body.md
+                     gh issue close "$(jq -r '.decision.issue' decision.json)" --reason completed ;;
+            none)    echo "no notification needed: $(jq -r '.decision.reason' decision.json)" ;;
+          esac
+          if [ "$(jq -r .status decision.json)" = FAILED ] || [ "$(jq -r .status decision.json)" = STALE ]; then
+            echo "::error::Autopilot is $(jq -r .status decision.json) — see the incident issue"
+          fi
