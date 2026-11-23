@@ -1,0 +1,62 @@
+# Publishes a committed Markdown report as a GitHub Discussion (used by the AI Product Council).
+# Uses only the repository's GITHUB_TOKEN with discussions:write. Refuses to create a duplicate title.
+name: Publish discussion
+on:
+  workflow_dispatch:
+    inputs:
+      file:
+        description: "Markdown file (repo path) used as the discussion body (max 65,000 characters)"
+        required: true
+      title:
+        description: "Discussion title"
+        required: true
+      category:
+        description: "Preferred category name (falls back to General)"
+        default: "Ideas"
+      index_discussion:
+        description: "Optional discussion number to receive a short index reply"
+        default: ""
+      index_file:
+        description: "Optional Markdown file for the index reply ({{URL}} is replaced by the new discussion URL)"
+        default: ""
+permissions:
+  contents: read
+  discussions: write
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      OWNER: ${{ github.repository_owner }}
+      REPO: ${{ github.event.repository.name }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create discussion
+        id: create
+        run: |
+          set -euo pipefail
+          FILE="${{ github.event.inputs.file }}"; TITLE="${{ github.event.inputs.title }}"; WANT="${{ github.event.inputs.category }}"
+          [ -f "$FILE" ] || { echo "::error::$FILE not found"; exit 1; }
+          SIZE=$(wc -c < "$FILE"); [ "$SIZE" -le 65000 ] || { echo "::error::body too large ($SIZE bytes)"; exit 1; }
+          gh api graphql -f query='query($o:String!,$n:String!){repository(owner:$o,name:$n){id discussionCategories(first:50){nodes{id name}} discussions(first:100,orderBy:{field:CREATED_AT,direction:DESC}){nodes{title url}}}}' -f o="$OWNER" -f n="$REPO" > repo.json
+          EXISTING=$(jq -r --arg t "$TITLE" '.data.repository.discussions.nodes[] | select(.title==$t) | .url' repo.json | head -1)
+          if [ -n "$EXISTING" ]; then echo "Discussion already exists: $EXISTING (not duplicated)"; echo "url=$EXISTING" >> "$GITHUB_OUTPUT"; exit 0; fi
+          REPO_ID=$(jq -r '.data.repository.id' repo.json)
+          CAT=$(jq -r --arg w "$WANT" '.data.repository.discussionCategories.nodes[] | select((.name|ascii_downcase)==($w|ascii_downcase)) | .id' repo.json | head -1)
+          [ -n "$CAT" ] || CAT=$(jq -r '.data.repository.discussionCategories.nodes[] | select((.name|ascii_downcase)=="general") | .id' repo.json | head -1)
+          [ -n "$CAT" ] || { echo "::error::no suitable discussion category"; jq '.data.repository.discussionCategories' repo.json; exit 1; }
+          echo "categories: $(jq -c '[.data.repository.discussionCategories.nodes[].name]' repo.json)"
+          URL=$(gh api graphql -f query='mutation($r:ID!,$c:ID!,$t:String!,$b:String!){createDiscussion(input:{repositoryId:$r,categoryId:$c,title:$t,body:$b}){discussion{url number}}}' \
+                -f r="$REPO_ID" -f c="$CAT" -f t="$TITLE" -f b="$(cat "$FILE")" --jq '.data.createDiscussion.discussion.url')
+          echo "Created: $URL"; echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "### Discussion published: $URL" >> "$GITHUB_STEP_SUMMARY"
+      - name: Index reply
+        if: github.event.inputs.index_discussion != '' && github.event.inputs.index_file != ''
+        run: |
+          set -euo pipefail
+          URL="${{ steps.create.outputs.url }}"
+          BODY=$(sed "s#{{URL}}#${URL}#g" "${{ github.event.inputs.index_file }}")
+          DID=$(gh api graphql -f query='query($o:String!,$n:String!,$num:Int!){repository(owner:$o,name:$n){discussion(number:$num){id comments(last:50){nodes{body}}}}}' \
+                -f o="$OWNER" -f n="$REPO" -F num="${{ github.event.inputs.index_discussion }}" > d.json && jq -r '.data.repository.discussion.id' d.json)
+          if jq -r '.data.repository.discussion.comments.nodes[].body' d.json | grep -qF "$URL"; then echo "index reply already present"; exit 0; fi
+          gh api graphql -f query='mutation($d:ID!,$b:String!){addDiscussionComment(input:{discussionId:$d,body:$b}){comment{url}}}' -f d="$DID" -f b="$BODY" --jq '.data.addDiscussionComment.comment.url'

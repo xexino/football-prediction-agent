@@ -78,3 +78,9 @@ verification column was actually performed. Updated 2026-11-22.
 | EB-7 | Player markets, goal timing, possession, offsides | BLOCKED (provider) | marked unavailable |
 | EB-8 | Optional LLM rephrasing layer | TODO (no key; deterministic reports work) | — |
 | EB-9 | Improve Engine B 1X2 (stack with A? calibration) | TODO | must beat A out of sample |
+
+## AI Product Council 2026-11-23
+The council review re-prioritised open work; see [`AI_PRODUCT_COUNCIL_ROADMAP.md`](AI_PRODUCT_COUNCIL_ROADMAP.md). Corrections to this table:
+* **EB-6** walk-forward validation: DONE on a scratch copy only. The production `eb_validation_runs` table is still empty (the step was added after the only weekly run), so the status is **PARTIAL until verified** (council M-01).
+* **LV-3** API-Football: only the live adapter exists. There is no fixtures, lineups or injuries adapter, and no key may be added before the quota guard (council R-05).
+* **A-7 / M-1** map to council R-01 (P0).

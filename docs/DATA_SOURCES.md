@@ -9,7 +9,7 @@ All sources are used within their published access terms. No paywall, authentica
 | martj42/international_results | GitHub CSV, CC0 | national-team results since 2016 (Elo, coverage) | irregular | high | active |
 | football-data.org | free API token (`FOOTBALL_DATA_ORG_KEY`) | fixtures, results (90-minute score; extra time flagged), standings, for PL, ELC, PD, SA, BL1, FL1, DED, PPL, BSA, **CL**, EC, WC; seasons 2023–2026; Champions League history backfilled | quick sync every 3h (1 request), full sync daily (~25 requests), 10 req/min | high | **active once the secret is set** (verified with a real token 2026-11-22) |
 | The Odds API | free key | more bookmakers, UEFA odds (h2h, totals) | 500 credits/month | high | adapter ready, **key missing** |
-| API-Football | free key | injuries, lineups, African leagues, live scores | 100 req/day | high | registered, **adapter not implemented**, key missing |
+| API-Football | free key | injuries, lineups, African leagues, live scores | 100 req/day | high | key missing. **Live adapter only** (Engine B, mock-tested); no fixtures/lineups/injuries/Africa adapter |
 | ClubElo | — | — | — | — | host resets connections; unused |
 
 \* Pinnacle columns are present in older seasons only.
