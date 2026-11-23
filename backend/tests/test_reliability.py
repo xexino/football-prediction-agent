@@ -128,7 +128,7 @@ def test_watchdog_detects_failures_stuck_and_staleness():
     newest["conclusion"] = "failure"
     rep = watchdog.evaluate(base, NOW)
     assert any(f["code"] == "critical_failure" for f in rep["findings"]) and rep["alert"]
-    stuck = base + [_run(999, NOW - timedelta(minutes=90), status_="in_progress")]
+    stuck = base + [_run(999, NOW - timedelta(minutes=120), status_="in_progress")]
     assert any(f["code"] == "stuck" for f in watchdog.evaluate(stuck, NOW)["findings"])
     old = [_run(1, NOW - timedelta(hours=10), event="workflow_dispatch", title="Autopilot · daily")]
     rep = watchdog.evaluate(old, NOW, first_seen=NOW - timedelta(hours=11))
@@ -153,7 +153,7 @@ def test_watchdog_issue_deduplication_and_recovery():
     assert d1["action"] == "create" and watchdog.FP_MARK in d1["body"]
     issue = {"number": 7, "body": d1["body"], "comments": []}
     assert watchdog.decide(bad, [issue])["action"] == "none"  # same incident: no spam
-    other = watchdog.evaluate([_run(1, NOW - timedelta(minutes=90), status_="in_progress")], NOW)
+    other = watchdog.evaluate([_run(1, NOW - timedelta(minutes=120), status_="in_progress")], NOW)
     assert watchdog.decide(other, [issue])["action"] == "comment"  # problem set changed
     good = watchdog.evaluate(_all_slots(NOW - timedelta(hours=26), NOW - timedelta(minutes=10)), NOW)
     d = watchdog.decide(good, [issue])
@@ -392,3 +392,18 @@ def test_frontend_never_hides_simulation_notice_without_replacement():
     main = (ROOT / "frontend/src/main.tsx").read_text()
     assert ".mobile-disclaimer" in css and "mobile-disclaimer" in main and "SIMULATION ONLY" in main
     assert "OpsBanner" in main
+
+
+def test_watchdog_queue_time_and_manual_runs():
+    base = _all_slots(NOW - timedelta(hours=26), NOW - timedelta(minutes=10))
+    queued = base + [_run(500, NOW - timedelta(minutes=100), status_="queued")]  # waiting in the concurrency queue
+    assert not any(f["code"] == "stuck" for f in watchdog.evaluate(queued, NOW)["findings"])
+    manual = base + [_run(501, NOW - timedelta(minutes=5), "failure", event="workflow_dispatch", title="Autopilot · engine_b")]
+    rep = watchdog.evaluate(manual, NOW)
+    assert any(f["code"] == "manual_failure" for f in rep["findings"]) and not rep["alert"]
+
+
+def test_manifest_covers_live_events():
+    from fil.integrity import MANIFEST_TABLES
+
+    assert "eb_live_events" in MANIFEST_TABLES

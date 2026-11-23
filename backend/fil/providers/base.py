@@ -48,10 +48,10 @@ def error_kind(message: str) -> str:
         return "missing_credentials"
     if "429" in m or "rate limit" in m or "quota" in m:
         return "rate_limited"
-    if "401" in m or "403" in m or "access denied" in m or "token" in m:
-        return "auth_failed"
-    if "malformed" in m or "invalid" in m or "json" in m or "parse" in m or "unexpected" in m:
+    if "malformed" in m or "json" in m or "parse" in m or "unexpected" in m or "invalid response" in m:
         return "invalid_response"
+    if "401" in m or "403" in m or "access denied" in m or "token" in m or "invalid key" in m:
+        return "auth_failed"
     return "unavailable"
 
 

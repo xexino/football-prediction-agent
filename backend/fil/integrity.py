@@ -9,7 +9,7 @@ from .config import settings
 
 MANIFEST_TABLES = ("fixtures", "odds_observations", "predictions", "value_assessments", "virtual_bets",
                    "settlements", "bankroll_transactions", "eb_predictions", "eb_bets", "eb_settlements",
-                   "eb_bankroll_transactions", "eb_live_snapshots")
+                   "eb_bankroll_transactions", "eb_live_snapshots", "eb_live_events")
 from .db import IMMUTABLE
 
 # Triggers every persisted database must already have (checked on the raw file BEFORE migrations run,
@@ -122,7 +122,7 @@ def guard_replace(new_db: str, old_manifest_json: str | None, pre_migration: boo
     new = chk["counts"]
     shrunk = {t: (old[t], new.get(t, 0)) for t in ("predictions", "virtual_bets", "settlements", "bankroll_transactions",
                                                  "value_assessments", "eb_predictions", "eb_bets", "eb_settlements",
-                                                 "eb_bankroll_transactions", "eb_live_snapshots")
+                                                 "eb_bankroll_transactions", "eb_live_snapshots", "eb_live_events")
               if new.get(t, 0) < old.get(t, 0)}
     if shrunk:
         return False, f"immutable tables would shrink (old, new): {shrunk}"

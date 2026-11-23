@@ -96,7 +96,8 @@ def main(argv=None):
             # restored database, so a 'running' row can only be a leftover of a cancelled/killed run. Without this,
             # such a row would make every run skip for 90 minutes while exiting 0 (council QA-5).
             recover_stale_runs()
-        res = run_job("bootstrap" if a.cmd == "bootstrap" else a.name, timeout_s=45 * 60)
+        res = run_job("bootstrap" if a.cmd == "bootstrap" else a.name,
+                      timeout_s=int(os.environ.get("FIL_JOB_TIMEOUT_S", 45 * 60)))
         print(json.dumps({k: res.get(k) for k in ("status", "error")} | {"report": (res.get("summary") or {}).get("report")},
                          default=str, indent=1)[:6000])
         if getattr(a, "status_out", None):

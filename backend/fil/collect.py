@@ -132,8 +132,9 @@ def collect_odds_api(oapi=None) -> dict:
             break
         except ProviderError as e:
             errs.append(f"{code}: {e}")
-    if errs and not ok_calls:
-        oapi.mark_error("; ".join(errs)[:900], requests=len(errs))
+    if errs:  # any failure counts (a partial 429 must not reset the circuit breaker / quota protection)
+        oapi.mark_error(f"{len(errs)} of {len(errs) + ok_calls} requests failed: " + "; ".join(errs)[:850],
+                        requests=len(errs) + ok_calls)
     else:
         oapi.mark_success(records=n, requests=ok_calls + len(errs), quota=getattr(oapi, "last_quota", None))
     return {"records": n, "errors": errs} if errs else {"records": n}

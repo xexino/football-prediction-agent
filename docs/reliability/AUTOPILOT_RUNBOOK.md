@@ -11,12 +11,14 @@ All commands assume the repository root unless they start with `cd backend`. `gh
 | restore | Restore database | Downloads `fil.db.gz` + `manifest.json` from release `db-latest` (4 tries, gzip-tested), runs `fil integrity --pre-migration`, `fil guard --pre-migration` (the file must not be older than its manifest), then `fil migrate` and the full `fil integrity` | Run fails. **No persist, no export.** The previous dashboard data stays published with a FAILED pipeline banner |
 | route | Pick job | `python -m fil.ops.schedule` maps the cron string or the manual input to the job(s) (`backend/fil/ops/schedule.py`) | Unknown cron or job: run fails |
 | run | Run | `python -m fil job <job> --status-out …` for each job | `error` fails the run. `partial` gives a warning annotation and pipeline state DEGRADED |
-| persist | Persist database (guarded) | WAL checkpoint, `fil guard` (integrity check + immutable tables may not shrink), upload the DB **first** and the manifest **last** (3 tries each), dated daily backup in release `db-backups` (14 kept). Live runs that created no new records skip the upload | Run fails; `OPS_PERSIST` = `refused` or `failed` |
+| persist | Persist database (guarded) | Refuses a database that was not restored from `db-latest` while that release exists. Then WAL checkpoint, `fil guard` (integrity check + immutable tables may not shrink), and uploads in this order (3 tries each): staging copy `fil-next.db.gz`, `fil.db.gz`, `manifest.json` last. Daily runs add a dated backup in release `db-backups` (14 kept). Live runs that added no audit records (snapshots, live events, bets, …) skip the upload; their job-run and provider-status rows are then not kept | Run fails; `OPS_PERSIST` = `refused` or `failed`; **export is skipped**, so figures that were never persisted are not published |
 | export | Export static dashboard | `fil export-static site.new`, verifies `health.json` and `index.html`, then swaps it in | Run fails; the previous dashboard data is republished |
 | status | Operational status | Writes `data/ops_status.json` and `data/ops_history.json` (last 300 runs, carried forward from the published site) | Always runs |
 | publish | Publish dashboard | Force-pushes the site to `gh-pages` (3 tries) | Run fails; the watchdog notices |
 
 The separate `.github/workflows/watchdog.yml` judges the run history itself. It runs after every Autopilot run, hourly at :17, and on demand.
+
+**Known residual risk:** GitHub keeps only one *pending* run per concurrency group. If runs bunch up (GitHub delayed them by up to 77 min), a newly queued run cancels an older pending one, possibly a critical one. Live runs are kept short and on different minutes to reduce this. A cancelled critical run raises a watchdog incident. `queue: max` would remove the risk, but it has not been verified on this repository.
 
 ## 2. Schedule and timezone reference
 Cron in GitHub Actions is **UTC**, with no daylight-saving shift. Rome is UTC+1 in winter and UTC+2 in summer.
@@ -64,10 +66,10 @@ Watchdog thresholds (in `backend/fil/ops/watchdog.py`):
 |---|---|---|
 | No successful critical run for | > 8 h | Critical work runs every 3 h; 8 h means two cycles were lost, plus slack for delays |
 | Scheduled run counted as missed after | 120 min | Delays of 77 min have been observed |
-| Run counted as stuck after | 75 min | The job's own timeout is 60 min |
+| Run counted as stuck after | 90 min running / 180 min queued | The job's own timeout is 80 min (25 min per backend job); queued runs may legitimately wait behind others |
 | Missed critical slots in 24 h | ≥ 2 → incident; 1 → DEGRADED only | |
 | Consecutive live failures | ≥ 3 → incident | |
-| Consecutive critical failures | any failed or cancelled → incident | |
+| Consecutive critical failures | any failed or cancelled scheduled critical run → incident | Manual (dispatched) failures are reported as DEGRADED, without an incident |
 
 ## 5. How to inspect failure logs
 ```bash
@@ -88,6 +90,8 @@ The run summary contains the stage table and `fil run-report --last 3` (per-step
 ## 7. Recovering from a failed database restore
 The run fails at the `restore` stage and nothing is persisted or exported. Check the log:
 
+* **`cannot tell whether db-latest exists`:** the GitHub API failed. Nothing was changed; re-run later. Only an explicit "release not found" starts a bootstrap.
+* **`fil.db.gz missing — using staging copy`:** a previous upload was interrupted. The run used `fil-next.db.gz`, validated against the manifest; nothing needs to be done.
 * **Download failed 4 times:** a GitHub outage. Re-run later:
   ```bash
   gh run rerun <run-id>

@@ -12,7 +12,8 @@ Thresholds are explicit and documented in docs/reliability/AUTOPILOT_RUNBOOK.md:
 * SUCCESS_MAX_AGE_H = 8   — critical work runs every 3 h; 8 h means at least two consecutive cycles were lost
                             (plus 2 h for GitHub's observed schedule delay of up to ~77 min).
 * SCHEDULE_TOLERANCE_MIN = 120 — GitHub delays scheduled runs under load; we observed 77 min on 2026-11-23.
-* STUCK_AFTER_MIN = 75    — the job's own timeout is 60 min; anything still running after 75 min is hung.
+* STUCK_AFTER_MIN = 90    — the job's own timeout is 80 min; anything still running after 90 min is hung.
+* QUEUED_STUCK_MIN = 180  — a run may wait in the concurrency queue behind others; 3 h of waiting is not normal.
 * MISSED_CRITICAL_ALERT = 2 — one missed slot within 24 h is reported as DEGRADED; two raise an incident.
 * LIVE_FAILURES_ALERT = 3  — live polling is best-effort; only repeated failures raise an incident.
 """
@@ -33,7 +34,8 @@ except ImportError:  # executed as a script without installing the backend
 
 SUCCESS_MAX_AGE_H = 8
 SCHEDULE_TOLERANCE_MIN = 120
-STUCK_AFTER_MIN = 75
+STUCK_AFTER_MIN = 90
+QUEUED_STUCK_MIN = 180
 MISSED_CRITICAL_ALERT = 2
 LIVE_FAILURES_ALERT = 3
 LOOKBACK_H = 24
@@ -60,7 +62,9 @@ def _schedule_of(run: dict) -> str | None:
 
 
 def _job_kind(run: dict) -> str:
-    """'critical' or 'best_effort' for one run."""
+    """'critical', 'best_effort' (live polling) or 'manual' (owner-dispatched; failures are reported, not alerted)."""
+    if run.get("event") == "workflow_dispatch":
+        return "manual"
     cron = _schedule_of(run)
     if cron:
         return SCHEDULES[cron][1]
@@ -79,19 +83,28 @@ def evaluate(runs: list[dict], now: datetime, first_seen: datetime | None = None
     done = [r for r in runs if r.get("status") == "completed"]
     ok = [r for r in done if r.get("conclusion") == "success"]
     last_ok = _ts(ok[0]["updated_at"]) if ok else None
-    last_ok_critical = next((_ts(r["updated_at"]) for r in ok if _job_kind(r) == "critical"), None)
+    # a successful manual run also did the critical work (fresh predictions, persisted DB)
+    last_ok_critical = next((_ts(r["updated_at"]) for r in ok if _job_kind(r) in ("critical", "manual")
+                             and not (r.get("display_title") or "").lower().endswith("live")), None)
 
     # 1. stuck runs
     for r in runs:
-        if r.get("status") in ("in_progress", "queued", "waiting", "requested", "pending"):
-            started = _ts(r.get("run_started_at") or r.get("created_at"))
-            if started and now - started > timedelta(minutes=STUCK_AFTER_MIN):
-                add("FAILED", "stuck", f"run {r['id']} has been {r['status']} for {int((now - started).total_seconds() // 60)} min "
-                                       f"(limit {STUCK_AFTER_MIN}) — {r.get('html_url', '')}")
+        st = r.get("status")
+        if st in ("in_progress", "queued", "waiting", "requested", "pending"):
+            running = st == "in_progress"
+            since = _ts(r.get("run_started_at") if running else r.get("created_at")) or _ts(r.get("created_at"))
+            limit = STUCK_AFTER_MIN if running else QUEUED_STUCK_MIN
+            if since and now - since > timedelta(minutes=limit):
+                add("FAILED", "stuck", f"run {r['id']} has been {st} for {int((now - since).total_seconds() // 60)} min "
+                                       f"(limit {limit}) — {r.get('html_url', '')}")
 
     # 2. failures (critical vs best effort), consecutive counts
     crit_done = [r for r in done if _job_kind(r) == "critical"]
     live_done = [r for r in done if _job_kind(r) == "best_effort"]
+    manual_done = [r for r in done if _job_kind(r) == "manual"]
+    if manual_done and manual_done[0].get("conclusion") != "success":
+        add("DEGRADED", "manual_failure", f"latest manually started run ended {manual_done[0].get('conclusion')} "
+                                          f"({manual_done[0].get('display_title')}) — {manual_done[0].get('html_url', '')}")
 
     def consecutive_bad(rs):
         n = 0
