@@ -43,8 +43,26 @@ function FreshnessBanner({ hd }: { hd: any }) {
 }
 
 /** Pipeline status of the Autopilot run that published this snapshot (data/ops_status.json). */
+function useOpenIncidents() {
+  const [inc, setInc] = React.useState<any[]>([]);
+  React.useEffect(() => {
+    let alive = true;
+    const load = () => fetch("https://api.github.com/repos/xexino/football-prediction-agent/issues?labels=autopilot-incident&state=open")
+      .then((r) => (r.ok ? r.json() : [])).then((j) => alive && setInc(Array.isArray(j) ? j : [])).catch(() => {});
+    load();
+    const t = setInterval(load, 600000);
+    return () => { alive = false; clearInterval(t); };
+  }, []);
+  return inc;
+}
+
 function OpsBanner({ ops }: { ops: any }) {
+  const incidents = useOpenIncidents();
   const cur = ops?.current;
+  if (incidents.length && (!cur || cur.state === "HEALTHY")) return (
+    <div className="banner banner-warn"><b>Open incident</b> — the watchdog reports a problem the last run could not see:{" "}
+      {incidents.map((i: any) => <a key={i.number} href={i.html_url} target="_blank" rel="noreferrer">#{i.number} {i.title.replace("Autopilot incident: ", "")}</a>)} · <a href="#/system">System Health</a></div>
+  );
   if (!cur || cur.state === "HEALTHY") return null;
   const failed = cur.state === "FAILED";
   return (
@@ -85,7 +103,7 @@ function Shell() {
           <span className={`dot ${h?.status === "ok" ? "ok" : h ? "err" : ""}`} /> backend {h?.status || "…"}<br />
           <span className={`dot ${h?.scheduler_running ? "ok" : "warn"}`} /> scheduler {h ? (h.scheduler_running ? "running" : "off / static snapshot") : "…"}<br />
           <span className={`dot ${STATE_CLASS[hd?.overall] ?? ""}`} /> health {hd?.overall ?? "…"}<br />
-          <span className="muted">data as of {hd ? ago(hd.computed_at) : "—"}</span>
+          <span className="muted">snapshot published {hd ? ago(hd.computed_at) : "—"}</span>
         </div>
       </aside>
       <main className="main">

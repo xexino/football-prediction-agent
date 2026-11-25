@@ -12,7 +12,7 @@ on:
     - cron: "17 * * * *"
   workflow_dispatch:
 permissions:
-  actions: read
+  actions: write    # catch-up: start an overdue Autopilot run or restart the dispatcher
   issues: write
   contents: read
 concurrency:
@@ -42,12 +42,14 @@ jobs:
           # the schedule in force since the workflow file last changed (earlier slots are not judged)
           gh api "repos/$GH_REPO/commits?path=.github/workflows/autopilot.yml&per_page=1" -q '.[0].commit.committer.date' > first_seen.txt || echo "" > first_seen.txt
           gh label create autopilot-incident --color B60205 --description "Opened/closed automatically by the Autopilot watchdog" 2>/dev/null || true
+          gh api "repos/$GH_REPO/actions/workflows/dispatcher.yml/runs?per_page=20" > dispatcher_runs.json || echo '{"workflow_runs":[]}' > dispatcher_runs.json
+          jq -e '.workflow_runs | type == "array"' dispatcher_runs.json > /dev/null || echo '{"workflow_runs":[{"status":"in_progress"}]}' > dispatcher_runs.json
           gh issue list --label autopilot-incident --state open --json number,body,comments --limit 5 > issues.json
       - name: Evaluate
         run: |
           set -euo pipefail
           FS=$(cat first_seen.txt)
-          python3 backend/fil/ops/watchdog.py --runs runs.json --issues issues.json --out decision.json ${FS:+--first-seen "$FS"} >> "$GITHUB_STEP_SUMMARY"
+          python3 backend/fil/ops/watchdog.py --runs runs.json --issues issues.json --out decision.json --dispatcher-runs dispatcher_runs.json ${FS:+--first-seen "$FS"} >> "$GITHUB_STEP_SUMMARY"
       - name: Act on decision
         run: |
           set -euo pipefail
@@ -61,6 +63,13 @@ jobs:
                      gh issue close "$(jq -r '.decision.issue' decision.json)" --reason completed ;;
             none)    echo "no notification needed: $(jq -r '.decision.reason' decision.json)" ;;
           esac
+          # self-healing: bounded catch-up (see backend/fil/ops/watchdog.py catch_up)
+          jq -c '.catch_up[]' decision.json | while read -r a; do
+            wf=$(echo "$a" | jq -r .workflow); job=$(echo "$a" | jq -r '.job // empty')
+            echo "catch-up: $wf ${job} — $(echo "$a" | jq -r .reason)"
+            if [ -n "$job" ]; then gh workflow run "$wf" --ref main -f job="$job"; else gh workflow run "$wf" --ref main; fi
+            echo "- catch-up started: \`$wf\` ${job} ($(echo "$a" | jq -r .reason))" >> "$GITHUB_STEP_SUMMARY"
+          done
           if [ "$(jq -r .status decision.json)" = FAILED ] || [ "$(jq -r .status decision.json)" = STALE ]; then
             echo "::error::Autopilot is $(jq -r .status decision.json) — see the incident issue"
           fi

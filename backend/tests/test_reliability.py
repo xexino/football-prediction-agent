@@ -407,3 +407,139 @@ def test_manifest_covers_live_events():
     from fil.integrity import MANIFEST_TABLES
 
     assert "eb_live_events" in MANIFEST_TABLES
+
+
+# --------------------------------------------------------------------------- dispatcher / gate / catch-up (2026-11-25)
+from fil.ops import dispatcher
+
+
+def test_dispatcher_due_slots():
+    assert dispatcher.due(datetime(2026, 11, 25, 9, 40)) == [("40 */3 * * *", "results,fixtures_odds")]
+    assert dispatcher.due(datetime(2026, 11, 25, 5, 10)) == [("10 5 * * *", "daily")]
+    assert dispatcher.due(datetime(2026, 11, 25, 12, 7)) == [("7,27,47 11-23 * * *", "live")]
+    assert dispatcher.due(datetime(2026, 11, 25, 9, 41)) == []
+    assert [j for _, j in dispatcher.due(datetime(2026, 11, 23, 6, 25))] == ["weekly"]  # Monday
+
+
+def _api_run(i, created, title, event="schedule", conclusion="success", actor="xexino", status_="completed"):
+    return {"id": i, "created_at": created.isoformat() + "Z", "updated_at": (created + timedelta(minutes=6)).isoformat() + "Z",
+            "run_started_at": created.isoformat() + "Z", "display_title": title, "event": event,
+            "conclusion": conclusion if status_ == "completed" else None, "status": status_,
+            "triggering_actor": {"login": actor}, "html_url": f"u/{i}"}
+
+
+def test_dispatcher_skips_slots_covered_by_cron_runs():
+    slot = datetime(2026, 11, 25, 9, 40)
+    runs = [_api_run(1, slot + timedelta(minutes=2), "Autopilot · 40 */3 * * *")]
+    assert dispatcher.covered(runs, "40 */3 * * *", "results,fixtures_odds", slot)
+    old = [_api_run(1, slot - timedelta(hours=3), "Autopilot · 40 */3 * * *")]
+    assert not dispatcher.covered(old, "40 */3 * * *", "results,fixtures_odds", slot)
+
+
+def test_gate_skips_late_duplicate_cron_runs_only():
+    now = datetime(2026, 11, 25, 15, 45)
+    done = [_api_run(1, datetime(2026, 11, 25, 5, 10), "Autopilot · daily", event="workflow_dispatch", actor=watchdog.BOT)]
+    assert dispatcher.is_duplicate(done, "daily", 99, now)  # GitHub delivered the 05:10 cron 10 h late
+    failed = [_api_run(1, datetime(2026, 11, 25, 5, 10), "Autopilot · daily", conclusion="failure")]
+    assert not dispatcher.is_duplicate(failed, "daily", 99, now)  # a failed run does not cover the slot
+    assert not dispatcher.is_duplicate([], "daily", 99, now)
+    live = [_api_run(1, now - timedelta(minutes=30), "Autopilot · live", event="workflow_dispatch", actor=watchdog.BOT)]
+    assert not dispatcher.is_duplicate(live, "live", 99, now)
+
+
+def test_watchdog_counts_dispatcher_runs_as_covering_slots():
+    runs = []
+    i = 0
+    for cron, (job, _k, _d) in schedule.SCHEDULES.items():
+        for t in schedule.slots(cron, NOW - timedelta(hours=26), NOW - timedelta(minutes=10)):
+            i += 1
+            runs.append(_api_run(i, t + timedelta(minutes=1), f"Autopilot · {job}", event="workflow_dispatch", actor=watchdog.BOT))
+    rep = watchdog.evaluate(runs, NOW)
+    assert rep["status"] == "HEALTHY", rep["findings"]
+    # dispatcher failures are alerted (they are not the owner's manual runs)
+    crit = max((r for r in runs if r["display_title"].endswith("results,fixtures_odds")), key=lambda r: r["created_at"])
+    crit["conclusion"] = "failure"
+    assert any(f["code"] == "critical_failure" for f in watchdog.evaluate(runs, NOW)["findings"])
+
+
+def test_catch_up_rules():
+    old = [_api_run(1, NOW - timedelta(hours=5), "Autopilot · results,fixtures_odds", event="workflow_dispatch", actor=watchdog.BOT),
+           _api_run(2, NOW - timedelta(hours=10), "Autopilot · daily", event="workflow_dispatch", actor=watchdog.BOT)]
+    running_dispatcher = [{"status": "in_progress"}]
+    acts = watchdog.catch_up(old, running_dispatcher, NOW)
+    assert acts == [{"workflow": "autopilot.yml", "job": "results,fixtures_odds", "reason": acts[0]["reason"]}]
+    assert any(a["workflow"] == "dispatcher.yml" for a in watchdog.catch_up(old, [], NOW))
+    no_daily = [_api_run(1, NOW - timedelta(hours=1), "Autopilot · results,fixtures_odds")]
+    assert watchdog.catch_up(no_daily, running_dispatcher, NOW)[0]["job"] == "daily"
+    busy = old + [_api_run(3, NOW - timedelta(minutes=5), "Autopilot · live", status_="in_progress")]
+    assert watchdog.catch_up(busy, running_dispatcher, NOW) == []
+    failing = old + [_api_run(4, NOW - timedelta(hours=1), "Autopilot · results,fixtures_odds", event="workflow_dispatch",
+                              actor=watchdog.BOT, conclusion="failure")]
+    assert watchdog.catch_up(failing, running_dispatcher, NOW) == []  # bounded: no retry loop
+
+
+def test_autopilot_has_gate_and_job_level_concurrency():
+    assert "needs: gate" in WORKFLOW and "if: needs.gate.outputs.run == 'true'" in WORKFLOW
+    head = WORKFLOW.split("jobs:")[0]
+    assert "concurrency:" not in head  # the gate must never wait in (or displace) the run queue
+    disp = (ROOT / ".github/workflows/dispatcher.yml").read_text()
+    assert "dispatcher.py" in disp and "actions: write" in disp
+
+
+# --------------------------------------------------------------------------- data/UI audit fixes (2026-11-25)
+def test_fixtures_job_settles_and_evaluates_engine_a():
+    from fil.jobs import JOBS
+
+    names = [n for n, _f, _c in JOBS["fixtures_odds"]()]
+    assert names.index("fixtures") < names.index("settle") < names.index("predict")
+    assert "evaluate" in names
+
+
+def test_overdue_results_are_not_healthy(db):
+    from datetime import timedelta as td
+
+    from fil import health
+    from fil.db import Competition, Fixture, Team, session_scope
+    from fil.timeutil import utcnow
+    from sqlalchemy import select
+
+    with session_scope() as s:
+        comp = s.scalars(select(Competition)).first()
+        a, b = Team(name="Alpha FC", country=comp.country), Team(name="Beta FC", country=comp.country)
+        s.add_all([a, b]); s.flush()
+        for h in (5, 40, 41, 42, 43, 44):
+            ko = utcnow() - td(hours=h)
+            s.add(Fixture(competition_id=comp.id, home_team_id=a.id, away_team_id=b.id, kickoff_utc=ko,
+                          match_date=str((ko - td(days=h)).date()), status="scheduled", first_seen_source="test"))
+    r = health.compute(include_db_check=False)["components"]["results"]
+    assert r["overdue"] == 6 and r["overdue_24h"] == 5 and r["state"] == "STALE"
+
+
+def test_ambiguous_alias_is_never_guessed(db):
+    from fil.db import Team, TeamAlias, session_scope
+    from fil.teamnames import TeamResolver
+
+    with session_scope() as s:
+        t1, t2 = Team(name="Paris FC", country="France"), Team(name="Paris SG", country="France")
+        s.add_all([t1, t2]); s.flush()
+        s.add_all([TeamAlias(alias_norm="paris", source="x", team_id=t1.id, confidence=0.9),
+                   TeamAlias(alias_norm="paris", source="y", team_id=t2.id, confidence=0.9)])
+        s.flush()
+        tid, _ = TeamResolver(s).resolve("Paris", "z", country="France", create=False)
+        assert tid is None
+
+
+def test_stale_cache_marks_provider_degraded(db):
+    from fil.collect import provider
+    from fil.db import DataSource, session_scope
+
+    p = provider("intl_results")
+    p.register()
+    p.stale_served = 2
+    p.mark_success(records=1, requests=1)
+    with session_scope() as s:
+        ds = s.query(DataSource).filter_by(key="intl_results").one()
+        assert ds.status == "degraded" and "stale cache" in ds.last_error
+    p.mark_success(records=1, requests=1)
+    with session_scope() as s:
+        assert s.query(DataSource).filter_by(key="intl_results").one().status == "ok"

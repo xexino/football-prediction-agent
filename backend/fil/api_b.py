@@ -204,7 +204,7 @@ def compare(days_back: int = 30):
         for p in s.scalars(select(Prediction).where(Prediction.fixture_id.in_(list(bp))).order_by(Prediction.revision.desc())):
             ap[p.fixture_id] = p  # revision 0 last -> original kept
         fxs = {f.id: f for f in s.scalars(select(Fixture).where(Fixture.id.in_(list(bp))))}
-        rows, agg = [], defaultdict(list)
+        rows, agg, agg_all = [], defaultdict(list), defaultdict(list)
         for fid, b in bp.items():
             f = fxs[fid]
             a = ap.get(fid)
@@ -217,15 +217,21 @@ def compare(days_back: int = 30):
             if a:
                 r["disagreement"] = round(max(abs(a.probs["1X2"][k] - b.markets["1X2"][k]) for k in ("home", "draw", "away")), 4)
             if res:
-                for name, pr in (("engine_b", b.markets["1X2"]), ("engine_a", a.probs["1X2"] if a else None), ("market", mk)):
+                srcs = (("engine_b", b.markets["1X2"]), ("engine_a", a.probs["1X2"] if a else None), ("market", mk))
+                for name, pr in srcs:
                     if pr:
                         ll = -math.log(max(pr[res], 1e-9))
                         r[f"logloss_{name}"] = round(ll, 4)
-                        agg[name].append(ll)
+                        agg_all[name].append(ll)
+                if all(pr for _, pr in srcs):  # like-for-like: only matches every source predicted
+                    for name, _ in srcs:
+                        agg[name].append(r[f"logloss_{name}"])
             rows.append(r)
         rows.sort(key=lambda r: r["kickoff_utc"], reverse=True)
-        return {"rows": rows, "live_log_loss": {k: {"mean": round(float(np.mean(v)), 4), "n": len(v)} for k, v in agg.items()},
-                "note": "Original (first) predictions of each engine; live sample is small until results accumulate."}
+        summ = lambda d: {k: {"mean": round(float(np.mean(v)), 4), "n": len(v)} for k, v in d.items()}
+        return {"rows": rows, "live_log_loss": summ(agg), "live_log_loss_all": summ(agg_all),
+                "note": "Original (first) predictions of each engine. live_log_loss compares only matches that Engine A, "
+                        "Engine B and the market all predicted (same n); live_log_loss_all uses every available match."}
 
 
 @router.get("/api/coverage_matrix")

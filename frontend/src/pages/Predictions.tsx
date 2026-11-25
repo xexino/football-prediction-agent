@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react";
 import { useApi } from "../hooks";
 import { api } from "../api";
-import { Card, Decision, Explanation, Loading, ProbBar, Quality, num, pct, romeTime } from "../ui";
+import { Card, Decision, Explanation, Loading, ProbBar, Quality, num, pct, romeTime , awaitingResult, statusNow} from "../ui";
 import { ValueTable } from "./Upcoming";
 
 export default function Predictions() {
@@ -15,7 +15,7 @@ export default function Predictions() {
   const rows = data.items.filter((p: any) => (!dec || p.decision === dec) && (!comp || p.fixture.competition_name === comp) &&
     (!q || `${p.fixture.home} ${p.fixture.away}`.toLowerCase().includes(q.toLowerCase())));
   const show = async (p: any) => {
-    try { setDetail(await api(`predictions/${p.id}`)); } catch { setDetail({ ...p, value: null }); }
+    try { setDetail(await api(`predictions/${p.id}`)); } catch { setDetail({ ...p, value: null, _missing: true }); }
   };
   return (
     <>
@@ -50,7 +50,7 @@ export default function Predictions() {
                   <td className="num">{num(p.exp_home_goals, 2)}–{num(p.exp_away_goals, 2)}</td>
                   <td className="num">{pct(p.probs.OU25?.over, 0)}</td><td className="num">{pct(p.probs.BTTS?.yes, 0)}</td>
                   <td className="num">{num(p.confidence, 0)}</td><td><Quality q={p.data_quality} /></td><td><Decision d={p.decision} /></td>
-                  <td className="mono">{p.fixture.score || <span className="muted">{p.fixture.status}</span>}</td>
+                  <td className="mono">{p.fixture.score || <span className={awaitingResult(p.fixture) ? "warn" : "muted"}>{statusNow(p.fixture)}</span>}</td>
                   <td className="num">{p.eval_brier !== null ? num(p.eval_brier, 3) : "—"}</td>
                 </tr>
               ))}

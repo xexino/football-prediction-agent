@@ -34,7 +34,7 @@ class TheSportsDB(Provider):
     base_url = "https://www.thesportsdb.com/api/v1/json"
     license_note = "Free public test key '123' — heavily limited (≈1-15 events per request). Community-maintained data."
     reliability = "medium"
-    min_interval_s = 3.0  # free test key is rate-limited; stay well under it
+    min_interval_s = 4.0  # free test key is rate-limited (429s observed at 3 s spacing, Nov 2026)
     cache_ttl_s = 3 * 3600
 
     def redact(self, url: str) -> str:

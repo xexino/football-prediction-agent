@@ -133,3 +133,12 @@ export function Explanation({ ex }: { ex: any }) {
     </div>
   );
 }
+
+
+/** A match without a score whose kickoff was more than 3 h ago: the result has not arrived yet (never "scheduled"). */
+export const awaitingResult = (f: { status?: string; score?: string | null; kickoff_utc?: string }) =>
+  !f.score && f.status !== "finished" && !!f.kickoff_utc && Date.now() - new Date(f.kickoff_utc).getTime() > 3 * 3.6e6;
+/** Status text for a fixture as of NOW in the viewer's browser (the static snapshot may be hours old). */
+export const statusNow = (f: { status?: string; score?: string | null; kickoff_utc?: string }) =>
+  f.score ? `FT ${f.score}` : awaitingResult(f) ? "awaiting result" :
+  f.kickoff_utc && Date.now() > new Date(f.kickoff_utc).getTime() ? "in play / just played" : (f.status || "scheduled");

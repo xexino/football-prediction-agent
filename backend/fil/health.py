@@ -14,6 +14,9 @@ from .timeutil import iso, utcnow
 
 ORDER = {"HEALTHY": 0, "UNKNOWN": 1, "DEGRADED": 2, "STALE": 3, "FAILED": 4}
 # expected cadence: autopilot every 3h, daily cycle every 24h
+OVERDUE_H = 3            # a match is over ~2 h after kickoff; +1 h for providers to publish
+OVERDUE_STALE_H = 36     # football-data.co.uk usually publishes lower-league results within a day
+OVERDUE_STALE_MIN = 5    # several matches that late means results collection is broken, not one postponed game
 THRESHOLDS = {  # component: (healthy_if_younger_than_h, warning_if_younger_than_h)
     "collection": (8, 30), "predictions": (8, 30), "settlement": (12, 36), "backup": (30, 54),
     "odds": (72, 120), "scheduler": (7, 26),
@@ -85,6 +88,19 @@ def compute(now: datetime | None = None, include_db_check: bool = True) -> dict:
         comps["fixtures"] = {"state": "HEALTHY" if upcoming else "DEGRADED", "upcoming_7d": upcoming,
                              "newest_result_kickoff": iso(newest_result),
                              "detail": "no upcoming fixtures known" if not upcoming else f"{upcoming} upcoming in 7 days"}
+        # overdue results: matches whose kickoff is well past but no verified score has arrived (audit 2026-11-25:
+        # 30 such fixtures while everything reported HEALTHY). Window: the last 14 days (older ones are listed in
+        # integrity reports, not here, so one abandoned fixture cannot keep the system red forever).
+        overdue = s.execute(select(Fixture.id, Fixture.kickoff_utc).where(
+            Fixture.status == "scheduled", Fixture.kickoff_utc < now - timedelta(hours=OVERDUE_H),
+            Fixture.kickoff_utc > now - timedelta(days=14))).all()
+        very_late = [r for r in overdue if r.kickoff_utc < now - timedelta(hours=OVERDUE_STALE_H)]
+        comps["results"] = {"state": "HEALTHY" if not overdue else ("STALE" if len(very_late) >= OVERDUE_STALE_MIN else "DEGRADED"),
+                            "overdue": len(overdue), "overdue_24h": len(very_late),
+                            "detail": (f"{len(overdue)} matches finished more than {OVERDUE_H} h ago without a verified result "
+                                       f"({len(very_late)} older than {OVERDUE_STALE_H} h); lower leagues depend on "
+                                       "football-data.co.uk, which publishes with a delay") if overdue else
+                                      "every match that kicked off more than 3 h ago has a result"}
         # live data: informational (never critical). Age of the newest live snapshot, labelled honestly.
         from .db import EBLiveSnapshot
 
@@ -100,13 +116,15 @@ def compute(now: datetime | None = None, include_db_check: bool = True) -> dict:
                 state = "UNKNOWN"
             elif d.status == "ok":
                 state = "HEALTHY"
+            elif d.status == "degraded":
+                state = "DEGRADED"
             elif d.status == "error":
                 state = "FAILED" if (d.last_success_at is None or now - d.last_success_at > timedelta(hours=30)) else "DEGRADED"
             else:
                 state = "UNKNOWN"
             providers[k] = {"state": state, "configured": d.configured, "last_success": iso(d.last_success_at),
                             "last_error": (d.last_error or "")[:200] or None, "circuit": (d.quota_info or {}).get("circuit"),
-                            "error_kind": (d.quota_info or {}).get("last_error_kind") if d.status == "error" else None}
+                            "error_kind": (d.quota_info or {}).get("last_error_kind") if d.status in ("error", "degraded") else None}
     if include_db_check:
         from .integrity import check_database
 
@@ -116,7 +134,7 @@ def compute(now: datetime | None = None, include_db_check: bool = True) -> dict:
                                  "counts": chk["counts"]}
         except Exception as exc:
             comps["database"] = {"state": "FAILED", "problems": [str(exc)]}
-    critical = ["collection", "predictions", "settlement", "database", "last_run", "scheduler"]
+    critical = ["collection", "predictions", "settlement", "database", "last_run", "scheduler", "results"]
     overall = max((comps[c]["state"] for c in critical if c in comps), key=lambda x: ORDER[x])
     return {"overall": overall, "components": comps, "providers": providers, "computed_at": iso(now),
             "states": {"HEALTHY": "working and recent", "DEGRADED": "partly working, or slightly late",

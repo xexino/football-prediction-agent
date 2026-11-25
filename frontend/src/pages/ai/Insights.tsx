@@ -19,7 +19,10 @@ export default function Insights() {
   const regions = useMemo(() => Array.from(new Set(items.map((i: any) => i.region))).sort() as string[], [items]);
   const days = useMemo(() => Array.from(new Set(items.map((i: any) => i.kickoff_rome?.slice(0, 10)))).sort() as string[], [items]);
   if (!data) return <Loading error={error} />;
-  const rows = items.filter((i: any) =>
+  // phase as of NOW (the snapshot's phase is frozen at export time)
+  const phaseNow = (i: any) => i.phase === "finished" || i.phase === "live" ? i.phase
+    : Date.now() > new Date(i.kickoff_utc).getTime() ? "awaiting_result" : "upcoming";
+  const rows = items.map((i: any) => ({ ...i, phase: phaseNow(i) })).filter((i: any) =>
     (tab === "all" || i.phase === tab || (tab === "finished" && i.phase === "awaiting_result")) &&
     (!comp || i.competition_name === comp) && (!region || i.region === region) && (!day || i.kickoff_rome?.startsWith(day)) &&
     (!onlyPred || i.engine_b || i.phase === "live") &&
@@ -45,7 +48,7 @@ export default function Insights() {
           return (
             <Link key={i.id} to={`/insights/${i.id}`} className="card ai-card">
               <div className="ai-head"><span className="muted" style={{ fontSize: 11 }}>{i.competition_name} · {romeTime(i.kickoff_utc)}</span><span className="chips"><LiveBadge l={i.phase === "live" ? i.live : null} /><Coverage s={i.coverage_status} /></span></div>
-              <div className="ai-teams">{i.home} <span className="muted">vs</span> {i.away}{i.score && <span className="mono" style={{ marginLeft: 8 }}>{i.score}</span>}</div>
+              <div className="ai-teams">{i.home} <span className="muted">vs</span> {i.away}{i.score ? <span className="mono" style={{ marginLeft: 8 }}>{i.score}</span> : i.phase === "awaiting_result" ? <span className="warn" style={{ marginLeft: 8, fontSize: 11 }}>awaiting result</span> : null}</div>
               {b ? (
                 <>
                   <Tri p={b.x12} />

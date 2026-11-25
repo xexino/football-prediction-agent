@@ -262,7 +262,8 @@ def evaluate_predictions() -> dict:
     n = 0
     with session_scope() as s:
         rows = s.execute(select(Prediction, Fixture).join(Fixture, Fixture.id == Prediction.fixture_id).where(
-            Prediction.evaluated.is_(False), Fixture.status == "finished", Fixture.home_goals.is_not(None))).all()
+            Prediction.evaluated.is_(False), Prediction.revision == 0, Fixture.status == "finished",
+            Fixture.home_goals.is_not(None))).all()
         for p, fx in rows:
             res = "home" if fx.home_goals > fx.away_goals else "draw" if fx.home_goals == fx.away_goals else "away"
             pr = p.probs["1X2"]

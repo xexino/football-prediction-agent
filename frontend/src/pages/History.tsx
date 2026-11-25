@@ -43,7 +43,7 @@ export default function History() {
                 <td className="num">{num(b.closing_price)}</td><td className={`num ${cls(b.clv)}`}>{spct(b.clv)}</td>
                 <td className="num">{eur(b.bankroll_before)} → {eur(b.bankroll_after_settlement ?? b.bankroll_after_stake)}</td>
                 <td className="num">{num(b.data_quality, 0)}</td>
-                <td className="muted" style={{ fontSize: 11 }}>{b.reason && <div>{b.reason}</div>}{b.settlement ? `${b.settlement.source}: ${b.settlement.rule}` : b.fixture.result_conflict ? "RESULT CONFLICT — held pending" : "awaiting verified result"}</td>
+                <td className="muted" style={{ fontSize: 11 }}>{b.reason && <div>{b.reason}</div>}{b.settlement ? `${b.settlement.source}: ${b.settlement.rule}` : b.fixture.result_conflict ? "RESULT CONFLICT — held pending" : new Date(b.fixture.kickoff_utc).getTime() > Date.now() ? "scheduled — not played yet" : "awaiting verified result"}</td>
               </tr>))}</tbody>
           </table>
           {rows.length === 0 && <div className="empty">No bets match the filters.</div>}

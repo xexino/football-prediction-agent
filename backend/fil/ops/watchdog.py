@@ -51,19 +51,30 @@ def _ts(s: str | None) -> datetime | None:
     return datetime.fromisoformat(s.replace("Z", "+00:00")).astimezone(timezone.utc).replace(tzinfo=None)
 
 
+BOT = "github-actions[bot]"
+
+
 def _schedule_of(run: dict) -> str | None:
-    """Cron string of a scheduled run. Runs created after this change carry it in their title
-    (`run-name: Autopilot · <cron or job>`); older ones are matched by time."""
+    """The schedule slot a run serves. Cron-triggered runs carry the cron string in their title; runs started by
+    the dispatcher (workflow_dispatch by github-actions[bot]) carry the job name (`Autopilot · <job>`)."""
     title = run.get("display_title") or run.get("name") or ""
     for cron in SCHEDULES:
         if cron in title:
             return cron
+    if _is_automatic_dispatch(run):
+        for cron, (job, _k, _d) in SCHEDULES.items():
+            if title.endswith(f"· {job}"):
+                return cron
     return None
+
+
+def _is_automatic_dispatch(run: dict) -> bool:
+    return run.get("event") == "workflow_dispatch" and (run.get("triggering_actor") or {}).get("login") == BOT
 
 
 def _job_kind(run: dict) -> str:
     """'critical', 'best_effort' (live polling) or 'manual' (owner-dispatched; failures are reported, not alerted)."""
-    if run.get("event") == "workflow_dispatch":
+    if run.get("event") == "workflow_dispatch" and not _is_automatic_dispatch(run):
         return "manual"
     cron = _schedule_of(run)
     if cron:
@@ -140,7 +151,7 @@ def evaluate(runs: list[dict], now: datetime, first_seen: datetime | None = None
     if first_seen and first_seen > start:
         start = first_seen  # do not report slots from before the schedule existed
     end = now - timedelta(minutes=SCHEDULE_TOLERANCE_MIN)
-    sched_runs = sorted((r for r in runs if r.get("event") == "schedule"), key=lambda r: r["created_at"])
+    sched_runs = sorted((r for r in runs if r.get("event") == "schedule" or _schedule_of(r)), key=lambda r: r["created_at"])
     used: set = set()
     missed = {"critical": [], "best_effort": []}
     expected = {"critical": 0, "best_effort": 0}
@@ -197,6 +208,40 @@ def evaluate(runs: list[dict], now: datetime, first_seen: datetime | None = None
             "missed": missed, "evaluated_at": now.isoformat() + "Z"}
 
 
+ACTIVE = ("in_progress", "queued", "waiting", "requested", "pending")
+CATCH_UP_AFTER_H = 3.5     # critical work is due every 3 h
+DAILY_AFTER_H = 26
+CATCH_UP_COOLDOWN_H = 3    # at most one automatic catch-up per 3 h, so a failing job cannot loop
+
+
+def catch_up(runs: list[dict], dispatcher_runs: list[dict], now: datetime) -> list[dict]:
+    """Self-healing actions: restart the dispatcher if none is running, and start overdue critical work."""
+    acts = []
+    if not any(r.get("status") in ACTIVE for r in dispatcher_runs):
+        acts.append({"workflow": "dispatcher.yml", "job": None, "reason": "no dispatcher running"})
+    if any(r.get("status") in ACTIVE for r in runs):
+        return acts
+    recent_auto = [r for r in runs if _is_automatic_dispatch(r)
+                   and now - _ts(r["created_at"]) < timedelta(hours=CATCH_UP_COOLDOWN_H)
+                   and r.get("conclusion") not in (None, "success")]
+    if recent_auto:
+        return acts  # an automatic attempt already failed recently: escalate via the issue, do not loop
+
+    def last_success(pred):
+        t = [_ts(r["updated_at"]) for r in runs if r.get("conclusion") == "success" and pred(r)]
+        return max(t) if t else None
+
+    title = lambda r: r.get("display_title") or ""
+    last_daily = last_success(lambda r: "10 5 * * *" in title(r) or title(r).endswith("· daily"))
+    last_crit = last_success(lambda r: not title(r).endswith("live") and "7,27,47" not in title(r))
+    if last_daily is None or now - last_daily > timedelta(hours=DAILY_AFTER_H):
+        acts.append({"workflow": "autopilot.yml", "job": "daily", "reason": "no successful daily run in 26 h"})
+    elif last_crit is None or now - last_crit > timedelta(hours=CATCH_UP_AFTER_H):
+        acts.append({"workflow": "autopilot.yml", "job": "results,fixtures_odds",
+                     "reason": f"no successful critical run in {CATCH_UP_AFTER_H} h"})
+    return acts
+
+
 def decide(report: dict, open_issues: list[dict]) -> dict:
     """Issue action with de-duplication: one open incident issue at a time; comment only when the set of
     problems changes; close it (with a recovery note) once healthy again."""
@@ -242,6 +287,7 @@ def main(argv=None) -> int:
     ap.add_argument("--issues")
     ap.add_argument("--out", required=True)
     ap.add_argument("--first-seen", help="ISO time the current schedule was introduced (ignore earlier slots)")
+    ap.add_argument("--dispatcher-runs", help="runs of dispatcher.yml (enables catch-up decisions)")
     ap.add_argument("--now", help="override the current time (tests)")
     a = ap.parse_args(argv)
     runs = json.loads(Path(a.runs).read_text()).get("workflow_runs", [])
@@ -249,6 +295,10 @@ def main(argv=None) -> int:
     now = _ts(a.now) if a.now else datetime.now(timezone.utc).replace(tzinfo=None)
     rep = evaluate(runs, now, _ts(a.first_seen) if a.first_seen else None)
     rep["decision"] = decide(rep, issues)
+    if a.dispatcher_runs and Path(a.dispatcher_runs).exists():
+        rep["catch_up"] = catch_up(runs, json.loads(Path(a.dispatcher_runs).read_text()).get("workflow_runs", []), now)
+    else:
+        rep["catch_up"] = []
     Path(a.out).write_text(json.dumps(rep, indent=1))
     print(render(rep))
     return 0

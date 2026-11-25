@@ -159,6 +159,11 @@ def export_static(out: Path):
     (data / "insights").mkdir(exist_ok=True)
     for it in snap["insights"]["items"]:
         (data / "insights" / f"{it['id']}.json").write_text(json.dumps(api_b.insight_detail(it["id"]), default=str))
+    # prediction detail (value table, revisions, explanation) for every exported prediction: without these files the
+    # Predictions page got a 404 on every row click in static mode (audit 2026-11-25)
+    (data / "predictions").mkdir(exist_ok=True)
+    for p in snap["predictions"]["items"] if isinstance(snap["predictions"], dict) else snap["predictions"]:
+        (data / "predictions" / f"{p['id']}.json").write_text(json.dumps(api.prediction_detail(p["id"]), default=str))
     (data / "engine_b").mkdir(exist_ok=True)
     (data / "engine_b" / "performance.json").write_text(json.dumps(snap["engine_b_performance"], default=str))
     (out / "static-mode.json").write_text(json.dumps({"static": True, "exported_at": snap["health"]["time_utc"]}))

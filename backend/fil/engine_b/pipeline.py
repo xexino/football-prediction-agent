@@ -184,7 +184,9 @@ def predict_upcoming(horizon_days: int = 7) -> dict:
                                   market_1x2=({k: v for k, v in mk1.items() if k != "bookmaker"} if mk1 else None),
                                   unavailable=pred["unavailable"], quality=quality, confidence=conf, live_available=live_ok)
             report["quality_breakdown"] = qb
-            markets = _clean(pred["markets"])
+            from ..pipeline import _renormalise
+
+            markets = _renormalise(_clean(pred["markets"]))  # exact sums after rounding (audit 2026-11-25)
             ihash = hashlib.sha1(json.dumps({"mv": mv, "x": {k: round(v, 3) for k, v in markets["1X2"].items()},
                                              "odds": sorted(o.id for o in snaps.values())}, sort_keys=True).encode()).hexdigest()
             last = s.scalars(select(EBPrediction).where(EBPrediction.fixture_id == fx.id).order_by(EBPrediction.revision.desc())).first()
