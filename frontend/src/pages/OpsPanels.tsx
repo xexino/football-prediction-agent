@@ -55,7 +55,7 @@ export function GithubRunsCard() {
   }, []);
   return (
     <Card title="GitHub Actions — live run history" right={<a className="muted" href={`https://github.com/${REPO}/actions/workflows/autopilot.yml`} target="_blank" rel="noreferrer">open in GitHub</a>}>
-      {incidents && incidents.length > 0 && <div className="banner banner-err">Open incident: {incidents.map((x: any) => <a key={x.number} href={x.html_url} target="_blank" rel="noreferrer">#{x.number} {x.title}</a>)}</div>}
+      {incidents && incidents.length > 0 && <p className="neg" style={{ fontSize: 12 }}>{incidents.length} open incident issue(s) — see the banner above.</p>}
       {err ? <div className="empty">Live run history unavailable ({err}). GitHub limits anonymous API use to 60 requests per hour per visitor.</div> :
         !runs ? <div className="empty">Loading…</div> :
         <div className="tablewrap"><table><thead><tr><th>Run</th><th>Trigger</th><th>Started</th><th>Result</th></tr></thead><tbody>

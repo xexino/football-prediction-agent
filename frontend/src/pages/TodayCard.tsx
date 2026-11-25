@@ -23,7 +23,7 @@ export default function TodayCard() {
             const b = i.engine_b;
             return (
               <tr key={i.id}>
-                <td className="mono">{i.kickoff_rome?.slice(11)}{i.phase === "live" ? " · LIVE" : new Date(i.kickoff_utc).getTime() < Date.now() ? <small className={i.score ? "" : "warn"}>{statusNow(i)}</small> : null}</td>
+                <td className="mono">{i.kickoff_rome?.slice(11)}{i.phase === "live" ? " · LIVE" : new Date(i.kickoff_utc).getTime() < Date.now() ? <small className={i.score ? "" : "warn"}> · {statusNow(i)}</small> : null}</td>
                 <td className="match"><Link to={`/insights/${i.id}`}>{i.home} – {i.away}</Link><small>{i.competition_name}</small></td>
                 <td className="num">{!i.engine_a && <span className="pill" title="Engine A does not cover this competition; Engine B probabilities shown">B</span>} {pct(p?.home, 0)}</td><td className="num">{pct(p?.draw, 0)}</td><td className="num">{pct(p?.away, 0)}</td>
                 <td className="num">{b ? `${num(b.xg.home, 1)}–${num(b.xg.away, 1)}` : "—"}</td>

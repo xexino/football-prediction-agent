@@ -27,7 +27,7 @@ export default function Compare() {
           return <tr key={r.id}><td className="mono">{romeTime(r.kickoff_utc)}</td><td className="match"><Link to={`/insights/${r.id}`}>{r.home} – {r.away}</Link><small>{r.competition_name}</small></td>
             <td className="mono">{fmt(r.engine_a)}</td><td className="mono">{fmt(r.engine_b)}</td><td className="mono">{fmt(r.market)}</td>
             <td className={`num ${(r.disagreement ?? 0) >= 0.08 ? "warn" : ""}`}>{r.disagreement != null ? pct(r.disagreement, 0) : "—"}</td>
-            <td className="mono">{r.score ? `${r.score} (${r.result})` : "—"}</td>
+            <td className="mono">{r.score ? `${r.score} (${r.result})` : new Date(r.kickoff_utc).getTime() < Date.now() ? <span className="warn">awaiting result</span> : "—"}</td>
             <td className="num">{r.logloss_engine_a != null ? num(r.logloss_engine_a, 3) : "—"}</td><td className="num">{r.logloss_engine_b != null ? num(r.logloss_engine_b, 3) : "—"}</td></tr>;
         })}</tbody></table>{!rows.length && <div className="empty">No fixtures.</div>}</div></Card>
     </>
