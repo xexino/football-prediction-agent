@@ -5,6 +5,7 @@ import "./styles.css";
 import { useApi } from "./hooks";
 import { ago } from "./ui";
 import Overview from "./pages/Overview";
+import Simple from "./pages/Simple";
 import Upcoming from "./pages/Upcoming";
 import Predictions from "./pages/Predictions";
 import BetSlip from "./pages/BetSlip";
@@ -19,7 +20,7 @@ import EngineB from "./pages/ai/EngineB";
 import CoveragePage from "./pages/ai/Coverage";
 
 const NAV = [
-  ["/", "◎", "Overview"], ["/upcoming", "▤", "Upcoming"], ["/predictions", "∑", "Predictions"],
+  ["/", "☺", "My view"], ["/overview", "◎", "Overview"], ["/upcoming", "▤", "Upcoming"], ["/predictions", "∑", "Predictions"],
   ["/slip", "▣", "Virtual Bet Slip"], ["/history", "≡", "Results & History"], ["/analytics", "▲", "Analytics"],
   ["/sources", "⇅", "Data Sources"], ["/system", "♥", "System Health"],
 ];
@@ -111,7 +112,8 @@ function Shell() {
         <OpsBanner ops={ops} />
         <FreshnessBanner hd={hd} />
         <Routes>
-          <Route path="/" element={<Overview />} />
+          <Route path="/" element={<Simple />} />
+          <Route path="/overview" element={<Overview />} />
           <Route path="/upcoming" element={<Upcoming />} />
           <Route path="/predictions" element={<Predictions />} />
           <Route path="/slip" element={<BetSlip />} />
