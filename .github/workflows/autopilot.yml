@@ -27,13 +27,37 @@ on:
       job:
         description: "job(s), comma-separated: daily, fixtures_odds, results, prematch_review, weekly, live, engine_b, backup"
         default: daily
+# Primary timer: .github/workflows/dispatcher.yml starts each slot on time with workflow_dispatch. The cron lines
+# above are a fallback only; GitHub often delivers them hours late, so a late duplicate is skipped by `gate`.
 permissions:
   contents: write   # publish gh-pages and the db-latest / db-backups release assets
-concurrency:
-  group: autopilot
-  cancel-in-progress: false
+  actions: read     # gate: read the run history
 jobs:
+  gate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.g.outputs.run }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { sparse-checkout: backend/fil, fetch-depth: 1, persist-credentials: false }
+      - id: g
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          SCHEDULE: ${{ github.event.schedule }}
+          REQUESTED: ${{ inputs.job }}
+        run: |
+          set -euo pipefail
+          JOB=$(cd backend && python3 -m fil.ops.schedule 2>/dev/null || echo unknown)
+          python3 backend/fil/ops/dispatcher.py gate --repo "${{ github.repository }}" --event "$EVENT" --job "$JOB" --run-id "${{ github.run_id }}" >> "$GITHUB_OUTPUT"
+          cat "$GITHUB_OUTPUT"
   run:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
+    concurrency:
+      group: autopilot
+      cancel-in-progress: false
     runs-on: ubuntu-latest
     timeout-minutes: 80
     env:
