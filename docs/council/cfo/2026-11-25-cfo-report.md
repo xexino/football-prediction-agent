@@ -1,5 +1,7 @@
 # CFO report: 2026-11-25
 
+> **Owner decision (2026-11-25):** the CFO is paused. The rule changes proposed below were **not** applied; the current rules (€500 capital, €10 flat stakes, existing value filters) stay as they are. This report is kept for reference only.
+
 *Simulation only: virtual money. Sources: prod DB snapshot (21:22 UTC) and a walk-forward re-run on a DB copy (2025-08-01 → 2026-11-25, model 1.1.0, live rules), which reproduces the stored run exactly (40 bets, −29.7 %). Amounts assume €10 stakes.*
 
 **Bottom line.** No edge has been shown; the best evidence says it is negative. Against the de-vigged sharp **closing** line, the backtest bets are worth **−3.4 %** each (n = 29 with a closing reference; 95 % CI ≈ [−6.0 %, −0.8 %]). The "+1.2 % CLV" we have been quoting compares each bet with Bet365's own closing price and flatters us.

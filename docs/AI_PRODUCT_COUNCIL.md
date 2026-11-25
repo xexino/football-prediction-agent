@@ -19,7 +19,7 @@ converted into issues and pull requests. **The council does not write production
 | 10 | DevOps & Autonomous Operations | Can it run unattended at free or low cost? |
 | 11 | Competitive Intelligence & Growth | Where can we genuinely differentiate, and how do we prove it? |
 | 12 | Independent Auditor / Devil's Advocate | What is over-engineered, unsupported, duplicated or not worth doing? |
-| 13 | Chief Financial Officer (added 2026-11-25) | Is the virtual money making or losing, why, and what must every agent deliver in money terms (ROI with CI, closing-line value, drawdown, forecast vs actual)? Veto on changes that add risk without evidence. Reports: `docs/council/cfo/` |
+| 13 | Chief Financial Officer (added 2026-11-25) | Is the virtual money making or losing, why, and what must every agent deliver in money terms (ROI with CI, closing-line value, drawdown, forecast vs actual)? Veto on changes that add risk without evidence. Reports: `docs/council/cfo/`. **Paused by the owner on 2026-11-25:** no CFO reviews or tests, and none of the CFO's proposed rule changes are applied; the betting rules stay as they are. |
 
 ## Review method
 1. **Pin the state.** Record the reviewed branch, the commit SHA, the production database snapshot time and the latest Actions runs.
@@ -66,6 +66,6 @@ MISSING · BLOCKED BY EXTERNAL DEPENDENCY · NOT RECOMMENDED.
 ## Recurring cadence
 * **Monthly:** a full council, or sooner after a major release.
 * **Weekly, lightweight:** Agents 7, 9 and 10 check metrics only (calibration, CLV, failed runs, staleness).
-* **Every 6 hours (scheduled task since 2026-11-25):** ops, data, UI, models and CFO agents, one discussion round, a skeptic, a cycle report in `docs/council/cycles/` ending with a NEXT TASK PROMPT that is executed in the same cycle.
+* **Every 6 hours (scheduled task since 2026-11-25):** ops, data, UI and models agents (the CFO is paused), one discussion round, a skeptic, a cycle report in `docs/council/cycles/` ending with a NEXT TASK PROMPT that is executed in the same cycle.
 * **Duplicate guard:** before proposing anything, search the register and open issues. If an item exists, update its
   status instead of re-proposing it.
