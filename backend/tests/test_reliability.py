@@ -654,3 +654,26 @@ def test_identity_report_lists_ambiguous_aliases(db, tmp_path):
 def test_persist_retries_survive_transient_upload_errors():
     block = WORKFLOW.split("name: Persist database (guarded)")[1].split("- uses:")[0]
     assert "for i in 1 2 3 4 5" in block  # 3 consecutive GitHub 5xx on 2026-11-25 15:44 exhausted 3 attempts
+
+
+def test_successful_manual_recovery_ends_failure_streak():
+    fail = _api_run(1, NOW - timedelta(hours=3), "Autopilot · results,fixtures_odds", event="workflow_dispatch",
+                    actor=watchdog.BOT, conclusion="failure")
+    recover = _api_run(2, NOW - timedelta(minutes=50), "Autopilot · results,fixtures_odds", event="workflow_dispatch",
+                       actor="xexino")
+    rep = watchdog.evaluate([recover, fail], NOW, first_seen=NOW - timedelta(hours=4))
+    assert not any(f["code"] == "critical_failure" for f in rep["findings"])
+    rep = watchdog.evaluate([fail], NOW, first_seen=NOW - timedelta(hours=4))
+    assert any(f["code"] == "critical_failure" for f in rep["findings"])
+    # a failing manual run still never raises the incident
+    bad_manual = _api_run(3, NOW - timedelta(minutes=10), "Autopilot · daily", event="workflow_dispatch", conclusion="failure")
+    rep = watchdog.evaluate([bad_manual, recover], NOW, first_seen=NOW - timedelta(hours=4))
+    assert not any(f["code"] == "critical_failure" for f in rep["findings"])
+
+
+def test_watchdog_notification_retries_and_catch_up_first():
+    wd = (ROOT / ".github/workflows/watchdog.yml").read_text()
+    act = wd.split("name: Act on decision")[1]
+    assert act.index("catch_up") < act.index("gh issue create")
+    assert "retry gh issue create" in act and 'gh api "repos/$GH_REPO/issues"' in act
+    assert "set -euo pipefail" not in act

@@ -35,7 +35,7 @@ class TheSportsDB(Provider):
     license_note = "Free public test key '123' — heavily limited (≈1-15 events per request). Community-maintained data."
     reliability = "medium"
     min_interval_s = 4.0  # free test key is rate-limited (429s observed at 3 s spacing, Nov 2026)
-    cache_ttl_s = 3 * 3600
+    cache_ttl_s = int(3.5 * 3600)  # outlives the 3-hourly cycle, so the :40 run finds a warm cache (was 347 s cold)
 
     def redact(self, url: str) -> str:
         return url.replace(f"/json/{settings.thesportsdb_key}/", "/json/<key>/")
