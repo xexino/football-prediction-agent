@@ -19,7 +19,9 @@ export default function Sources() {
               <td className="muted">{p.kind}</td><td className="mono">{ago(p.last_success_at)}</td>
               <td className="num">{p.freshness_hours === null ? "—" : `${p.freshness_hours}h`}</td>
               <td className="num">{p.requests_total}</td><td className="num">{p.records_total?.toLocaleString()}</td>
-              <td className="mono" style={{ fontSize: 11 }}>{p.quota ? JSON.stringify(p.quota) : "—"}</td>
+              <td className="mono" style={{ fontSize: 11 }}>{p.quota ? Object.entries(p.quota).map(([k, v]: any) => k === "circuit"
+                ? <div key={k}>circuit {v?.open_until ? <span className="neg">open until {String(v.open_until).slice(11, 16)} UTC</span> : "closed"}{v?.failures ? ` · ${v.failures} failures` : ""}</div>
+                : <div key={k}>{k.replace(/_/g, " ")}: {typeof v === "object" ? (v === null ? "—" : Object.entries(v).map(([a, b]) => `${a} ${b ?? "—"}`).join(", ")) : String(v ?? "—")}</div>) : "—"}</td>
               <td className="muted" style={{ fontSize: 11, maxWidth: 260 }}>{p.license}</td>
               <td className="neg" style={{ fontSize: 11, maxWidth: 240 }}>{p.last_error ? `${ago(p.last_error_at)}: ${p.last_error.slice(0, 160)}` : ""}</td>
             </tr>))}</tbody>

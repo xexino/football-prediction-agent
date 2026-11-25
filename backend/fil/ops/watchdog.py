@@ -128,9 +128,12 @@ def evaluate(runs: list[dict], now: datetime, first_seen: datetime | None = None
 
     # a successful manual run of critical work (e.g. a recovery run) also ends a failure streak; manual FAILURES
     # still never raise an incident (council cycle 2026-11-25 18:51: #23 stayed open after an 18:18 recovery run)
+    def _jobs(r):
+        return set((r.get("display_title") or "").split("· ")[-1].replace(" ", "").split(","))
+
     crit_seq = [r for r in done if _job_kind(r) == "critical" or (
         _job_kind(r) == "manual" and r.get("conclusion") == "success"
-        and not (r.get("display_title") or "").lower().endswith("live"))]
+        and _jobs(r) & {"daily", "results", "fixtures_odds"})]
     c_bad, l_bad = consecutive_bad(crit_seq), consecutive_bad(live_done)
     if c_bad:
         last = crit_seq[0]

@@ -674,6 +674,28 @@ def test_successful_manual_recovery_ends_failure_streak():
 def test_watchdog_notification_retries_and_catch_up_first():
     wd = (ROOT / ".github/workflows/watchdog.yml").read_text()
     act = wd.split("name: Act on decision")[1]
-    assert act.index("catch_up") < act.index("gh issue create")
-    assert "retry gh issue create" in act and 'gh api "repos/$GH_REPO/issues"' in act
+    assert act.index("catch_up[]") < act.index('repos/$GH_REPO/issues" -f title')  # self-healing first
+    assert "open_with_title" in act and "fp_posted" in act and "is_closed" in act  # idempotent retries
+    assert 'cu_fail=1' in act and '[ "$cu_fail" = 0 ] || exit 1' in act          # catch-up failures are loud
     assert "set -euo pipefail" not in act
+
+
+def test_only_manual_results_work_ends_failure_streak():
+    fail = _api_run(1, NOW - timedelta(hours=3), "Autopilot · results,fixtures_odds", event="workflow_dispatch",
+                    actor=watchdog.BOT, conclusion="failure")
+    for title in ("Autopilot · engine_b", "Autopilot · backup", "Autopilot · weekly", "Autopilot · live"):
+        other = _api_run(2, NOW - timedelta(minutes=30), title, event="workflow_dispatch", actor="xexino")
+        rep = watchdog.evaluate([other, fail], NOW, first_seen=NOW - timedelta(hours=4))
+        assert any(f["code"] == "critical_failure" for f in rep["findings"]), title
+
+
+def test_thesportsdb_results_cache_stays_fresh():
+    from fil.providers.others import TheSportsDB
+
+    assert TheSportsDB.ENDPOINT_TTL["eventspastleague.php"] <= int(2.5 * 3600) < 3 * 3600
+    assert TheSportsDB.ENDPOINT_TTL["eventsnextleague.php"] > 3 * 3600
+
+
+def test_postponed_fixtures_get_their_own_phase():
+    src = (ROOT / "backend/fil/api_b.py").read_text()
+    assert '"postponed" if f.status in ("postponed", "cancelled", "abandoned")' in src
