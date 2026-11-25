@@ -43,9 +43,9 @@ function StatusLight({ hd, ops }: { hd: any; ops: any }) {
   );
 }
 
-/** CFO forecast (25 Nov 2026): central return −10 % per euro staked, realistic range −30 % … +3 %
- *  (backtest 40 bets −29.7 %; model not better than the market; bookmaker margin ~5 %). */
-const FORECAST = { central: -0.10, low: -0.30, high: 0.03 };
+/** CFO forecast (docs/council/cfo/2026-11-25-cfo-report.md): central −3.5 % per euro staked (clean closing-line
+ *  value of the backtest bets), pessimistic −10 %, optimistic +3 %. */
+const FORECAST = { central: -0.035, low: -0.10, high: 0.03 };
 
 function ForecastVsReality({ ov }: { ov: any }) {
   if (!ov) return null;
