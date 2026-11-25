@@ -609,3 +609,43 @@ def test_dispatcher_starts_watchdog_and_fails_loudly(monkeypatch):
     assert calls == [("watchdog.yml", None), ("watchdog.yml", None)]
     src = (ROOT / "backend/fil/ops/dispatcher.py").read_text()
     assert "return 0 if ok else 1" in src
+
+
+def test_unresolved_round_complete_is_labelled_not_stale(db):
+    from datetime import timedelta as td
+
+    from fil import health
+    from fil.db import Competition, Fixture, Team, session_scope
+    from fil.timeutil import utcnow
+    from sqlalchemy import select
+
+    with session_scope() as s:
+        comp = s.scalars(select(Competition)).first()
+        ts = [Team(name=f"T{i}", country=comp.country) for i in range(10)]
+        s.add_all(ts); s.flush()
+        ko = utcnow() - td(days=5)
+        orphan = Fixture(competition_id=comp.id, home_team_id=ts[0].id, away_team_id=ts[1].id, kickoff_utc=ko,
+                         match_date=str(ko.date()), status="scheduled", first_seen_source="test")
+        s.add(orphan)
+        for i in range(2, 10, 2):  # the rest of the round has results
+            s.add(Fixture(competition_id=comp.id, home_team_id=ts[i].id, away_team_id=ts[i + 1].id, kickoff_utc=ko,
+                          match_date=str(ko.date()), status="finished", home_goals=1, away_goals=0, first_seen_source="test"))
+        s.flush()
+        oid = orphan.id
+    r = health.compute(include_db_check=False)["components"]["results"]
+    assert r["unresolved_round_complete"] == [oid] and r["overdue"] == 0 and r["state"] == "HEALTHY"
+    with session_scope() as s:  # the stored status is never changed by health
+        assert s.get(Fixture, oid).status == "scheduled"
+
+
+def test_identity_report_lists_ambiguous_aliases(db, tmp_path):
+    from fil.db import Team, TeamAlias, session_scope
+    from fil.identity import dry_run
+
+    with session_scope() as s:
+        a, b = Team(name="Paris FC", country="France"), Team(name="Paris SG", country="France")
+        s.add_all([a, b]); s.flush()
+        s.add_all([TeamAlias(alias_norm="paris", source="thesportsdb", team_id=a.id),
+                   TeamAlias(alias_norm="paris", source="thesportsdb", team_id=b.id)])
+    r = dry_run(tmp_path / "r.md")
+    assert any(x["alias"] == "paris" and len(x["team_ids"]) == 2 for x in r["ambiguous_aliases"])

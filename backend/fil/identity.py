@@ -123,8 +123,12 @@ def propose(db_path=None) -> dict:
             "GROUP BY t.id HAVING SUM(substr(c.code,-1) BETWEEN '0' AND '9') > 0 AND SUM(c.code IN (%s)) > 0"
             % ((",".join(f"'{c}'" for c in NATIONAL_COMPS),) * 2)):
         mixed.append({"team_id": tid, "name": name, "club_fixtures": clubs, "national_fixtures": nats})
+    amb_alias = [{"alias": a, "source": src, "team_ids": ids} for a, src, ids in (
+        (a, src, sorted({int(x) for x in ids.split(",")})) for a, src, ids in con.execute(
+            "SELECT alias_norm, source, GROUP_CONCAT(DISTINCT team_id) FROM team_aliases GROUP BY alias_norm, source "
+            "HAVING COUNT(DISTINCT team_id) > 1"))]
     con.close()
-    return {"europe_teams": len(europe), "proposals": proposals, "ambiguous": ambiguous, "unmatched": unmatched,
+    return {"ambiguous_aliases": amb_alias, "europe_teams": len(europe), "proposals": proposals, "ambiguous": ambiguous, "unmatched": unmatched,
             "conflicts_same_target": [{"domestic_id": d, "europe_ids": e} for d, e in multi.items()],
             "date_clashes_after_merge": clashes[:50], "club_national_mixed": mixed}
 
@@ -154,7 +158,9 @@ def report_md(r: dict) -> str:
                              ("Conflicts (same target)", "conflicts_same_target", ("domestic_id", "europe_ids")),
                              ("Date clashes after merge", "date_clashes_after_merge", ("team_id", "date", "fixtures")),
                              ("Club/national mixed ids", "club_national_mixed", ("team_id", "name", "club_fixtures", "national_fixtures")),
-                             ("Unmatched", "unmatched", ("europe_id", "name", "fixtures"))):
+                             ("Unmatched", "unmatched", ("europe_id", "name", "fixtures")),
+                             ("Ambiguous aliases (one spelling -> several teams; never used to resolve, teamnames.py)",
+                              "ambiguous_aliases", ("alias", "source", "team_ids"))):
         L += ["", f"## {title} ({len(r[key])})", ""]
         if r[key]:
             L += ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]

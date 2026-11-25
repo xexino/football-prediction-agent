@@ -16,7 +16,8 @@ ORDER = {"HEALTHY": 0, "UNKNOWN": 1, "DEGRADED": 2, "STALE": 3, "FAILED": 4}
 # expected cadence: autopilot every 3h, daily cycle every 24h
 OVERDUE_H = 3            # a match is over ~2 h after kickoff; +1 h for providers to publish
 OVERDUE_STALE_H = 36     # football-data.co.uk usually publishes lower-league results within a day
-OVERDUE_STALE_MIN = 5    # several matches that late means results collection is broken, not one postponed game
+OVERDUE_STALE_MIN = 5
+ORPHAN_H = 72            # after 3 days a match whose whole round has results is treated as unresolved, not stale    # several matches that late means results collection is broken, not one postponed game
 THRESHOLDS = {  # component: (healthy_if_younger_than_h, warning_if_younger_than_h)
     "collection": (8, 30), "predictions": (8, 30), "settlement": (12, 36), "backup": (30, 54),
     "odds": (72, 120), "scheduler": (7, 26),
@@ -91,16 +92,32 @@ def compute(now: datetime | None = None, include_db_check: bool = True) -> dict:
         # overdue results: matches whose kickoff is well past but no verified score has arrived (audit 2026-11-25:
         # 30 such fixtures while everything reported HEALTHY). Window: the last 14 days (older ones are listed in
         # integrity reports, not here, so one abandoned fixture cannot keep the system red forever).
-        overdue = s.execute(select(Fixture.id, Fixture.kickoff_utc).where(
+        overdue_all = s.execute(select(Fixture.id, Fixture.kickoff_utc, Fixture.competition_id).where(
             Fixture.status == "scheduled", Fixture.kickoff_utc < now - timedelta(hours=OVERDUE_H),
-            Fixture.kickoff_utc > now - timedelta(days=14))).all()
+            Fixture.kickoff_utc > now - timedelta(days=400))).all()
+        # "unresolved (round complete)": > 72 h old while every other match of its competition within +-3 days has a
+        # result -> almost certainly postponed/abandoned and dropped by the source. Shown, but kept out of the stale
+        # alarm. The stored status is NOT changed (a guessed 'postponed' would void bets; council 2026-11-25 12:51).
+        unresolved = []
+        for r in overdue_all:
+            if r.kickoff_utc > now - timedelta(hours=ORPHAN_H):
+                continue
+            sib = s.execute(select(Fixture.status).where(
+                Fixture.competition_id == r.competition_id, Fixture.id != r.id,
+                Fixture.kickoff_utc.between(r.kickoff_utc - timedelta(days=3), r.kickoff_utc + timedelta(days=3)))).scalars().all()
+            if len(sib) >= 3 and all(x == "finished" for x in sib):
+                unresolved.append(r.id)
+        overdue = [r for r in overdue_all if r.id not in unresolved and r.kickoff_utc > now - timedelta(days=14)]
         very_late = [r for r in overdue if r.kickoff_utc < now - timedelta(hours=OVERDUE_STALE_H)]
         comps["results"] = {"state": "HEALTHY" if not overdue else ("STALE" if len(very_late) >= OVERDUE_STALE_MIN else "DEGRADED"),
                             "overdue": len(overdue), "overdue_24h": len(very_late),
-                            "detail": (f"{len(overdue)} matches finished more than {OVERDUE_H} h ago without a verified result "
-                                       f"({len(very_late)} older than {OVERDUE_STALE_H} h); lower leagues depend on "
-                                       "football-data.co.uk, which publishes with a delay") if overdue else
-                                      "every match that kicked off more than 3 h ago has a result"}
+                            "unresolved_round_complete": unresolved,
+                            "detail": ((f"{len(overdue)} matches finished more than {OVERDUE_H} h ago without a verified result "
+                                        f"({len(very_late)} older than {OVERDUE_STALE_H} h); lower leagues depend on "
+                                        "football-data.co.uk, which publishes with a delay") if overdue else
+                                       "every match that kicked off more than 3 h ago has a result")
+                                      + (f"; {len(unresolved)} older match(es) never got a result although the rest of "
+                                         "their round did (probably postponed; not counted as stale)" if unresolved else "")}
         # live data: informational (never critical). Age of the newest live snapshot, labelled honestly.
         from .db import EBLiveSnapshot
 
