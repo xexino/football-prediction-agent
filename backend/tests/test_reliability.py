@@ -649,3 +649,8 @@ def test_identity_report_lists_ambiguous_aliases(db, tmp_path):
                    TeamAlias(alias_norm="paris", source="thesportsdb", team_id=b.id)])
     r = dry_run(tmp_path / "r.md")
     assert any(x["alias"] == "paris" and len(x["team_ids"]) == 2 for x in r["ambiguous_aliases"])
+
+
+def test_persist_retries_survive_transient_upload_errors():
+    block = WORKFLOW.split("name: Persist database (guarded)")[1].split("- uses:")[0]
+    assert "for i in 1 2 3 4 5" in block  # 3 consecutive GitHub 5xx on 2026-11-25 15:44 exhausted 3 attempts
