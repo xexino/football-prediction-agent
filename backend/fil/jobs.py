@@ -33,7 +33,11 @@ def _steps_results():
 
 
 def _steps_fixtures():
+    # fixtures also brings results from football-data.org / TheSportsDB (often hours before football-data.co.uk),
+    # so Engine A settles and evaluates again here; previously only Engine B did (audit 2026-11-25)
     return [("fixtures", collect.collect_fixtures, False),
+            ("settle", settle_pending, True),
+            ("evaluate", pipeline.evaluate_predictions, False),
             ("predict", lambda: pipeline.predict_upcoming(), True)] + EB_STEPS + [("eb_live", _eb("live"), False)]
 
 

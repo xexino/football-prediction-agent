@@ -1,6 +1,6 @@
 import { useParams, Link } from "react-router-dom";
 import { useApi } from "../../hooks";
-import { Card, Loading, num, pct, romeTime, Status } from "../../ui";
+import { Card, Loading, num, pct, romeTime, Status, statusNow } from "../../ui";
 import { Coverage, SubNav, Tri, liveLabel } from "./common";
 
 const SECTION_TITLES: Record<string, string> = {
@@ -46,7 +46,7 @@ export default function InsightDetail() {
   const lastLive = data.live[data.live.length - 1];
   return (
     <>
-      <div className="topbar"><div><h1>{f.home} vs {f.away}</h1><div className="sub">{f.competition_name} · {romeTime(f.kickoff_utc)} · {f.status}{f.score ? ` · final ${f.score}` : ""}</div></div>
+      <div className="topbar"><div><h1>{f.home} vs {f.away}</h1><div className="sub">{f.competition_name} · {romeTime(f.kickoff_utc)} · {statusNow(f)}</div></div>
         <div className="chips"><Coverage s={f.coverage_status} />{data.model && <span className="pill">{data.model.name} {data.model.version}</span>}</div></div>
       <SubNav />
       {!p ? <div className="empty">Engine B has not produced a prediction for this fixture: not enough reliable data. Coverage status: {f.coverage_status}.</div> : (

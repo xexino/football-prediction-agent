@@ -124,3 +124,8 @@ ul.tight { margin: 4px 0 0; padding-left: 18px; color: var(--muted); font-size: 
 /* tables never widen the page on phones: they scroll inside their card */
 @media (max-width: 760px) { .card table { display: block; max-width: 100%; overflow-x: auto; } }
 .kv > span { min-width: 0; overflow-wrap: anywhere; }
+/* audit 2026-11-25: nothing may widen the page */
+.grid > * { min-width: 0; }
+.filters select, .filters input { max-width: 100%; }
+/* mobile nav: show that the strip scrolls */
+@media (max-width: 760px) { .nav { -webkit-mask-image: linear-gradient(to right, #000 85%, transparent); mask-image: linear-gradient(to right, #000 85%, transparent); padding-right: 24px; } }

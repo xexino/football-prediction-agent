@@ -70,10 +70,10 @@ export default function Overview() {
           )}
         </Card>
         <Card title={`Upcoming (${data.upcoming_count} in 7 days · ${data.predicted_count} predicted)`} right={<Link to="/upcoming">all →</Link>}>
-          <table><thead><tr><th>Kickoff (Rome)</th><th>Match</th><th>1X2 model</th><th>Quality</th><th>Status</th></tr></thead>
+          <div className="tablewrap"><table><thead><tr><th>Kickoff (Rome)</th><th>Match</th><th>1X2 model</th><th>Quality</th><th>Status</th></tr></thead>
             <tbody>{data.upcoming.map((f: any) => (
               <tr key={f.id}><td className="mono">{romeTime(f.kickoff_utc)}</td><td className="match">{f.home} – {f.away}<small>{f.competition_name}</small></td>
-                <td><ProbBar p={f.probs_1x2} /></td><td><Quality q={f.data_quality} /></td><td><Decision d={f.decision} /></td></tr>))}</tbody></table>
+                <td><ProbBar p={f.probs_1x2} /></td><td><Quality q={f.data_quality} /></td><td><Decision d={f.decision} /></td></tr>))}</tbody></table></div>
         </Card>
       </div>
     </>

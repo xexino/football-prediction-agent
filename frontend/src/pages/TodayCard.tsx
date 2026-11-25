@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom";
 import { useApi } from "../hooks";
-import { Card, pct, num } from "../ui";
+import { Card, pct, num, statusNow } from "../ui";
 
 const romeDay = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 
@@ -23,16 +23,16 @@ export default function TodayCard() {
             const b = i.engine_b;
             return (
               <tr key={i.id}>
-                <td className="mono">{i.kickoff_rome?.slice(11)}{i.phase === "live" ? " · LIVE" : i.status === "finished" ? ` · FT ${i.score ?? ""}` : ""}</td>
+                <td className="mono">{i.kickoff_rome?.slice(11)}{i.phase === "live" ? " · LIVE" : new Date(i.kickoff_utc).getTime() < Date.now() ? <small className={i.score ? "" : "warn"}>{statusNow(i)}</small> : null}</td>
                 <td className="match"><Link to={`/insights/${i.id}`}>{i.home} – {i.away}</Link><small>{i.competition_name}</small></td>
-                <td className="num">{pct(p?.home, 0)}</td><td className="num">{pct(p?.draw, 0)}</td><td className="num">{pct(p?.away, 0)}</td>
+                <td className="num">{!i.engine_a && <span className="pill" title="Engine A does not cover this competition; Engine B probabilities shown">B</span>} {pct(p?.home, 0)}</td><td className="num">{pct(p?.draw, 0)}</td><td className="num">{pct(p?.away, 0)}</td>
                 <td className="num">{b ? `${num(b.xg.home, 1)}–${num(b.xg.away, 1)}` : "—"}</td>
                 <td className="mono">{b ? Object.entries(b.top_scores).slice(0, 3).map(([s, v]: any) => `${s} (${pct(v, 0)})`).join(" · ") : "—"}</td>
                 <td className="mono">{b ? `${pct(b.over25, 0)} · ${pct(b.btts, 0)}` : "—"}</td>
               </tr>);
           })}</tbody>
         </table></div>}
-      <p className="muted" style={{ fontSize: 11, marginBottom: 0 }}>1 / X / 2 = Engine A probabilities (Engine B if A has none). xG and scores = Engine B model. Probabilities, not certainties. Simulation only.</p>
+      <p className="muted" style={{ fontSize: 11, marginBottom: 0 }}>1 / X / 2 = Engine A probabilities; rows marked B use Engine B because Engine A does not cover that competition. xG and scores = Engine B model. Probabilities, not certainties. Simulation only.</p>
     </Card>
   );
 }

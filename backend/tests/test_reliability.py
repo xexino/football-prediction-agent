@@ -484,3 +484,62 @@ def test_autopilot_has_gate_and_job_level_concurrency():
     assert "concurrency:" not in head  # the gate must never wait in (or displace) the run queue
     disp = (ROOT / ".github/workflows/dispatcher.yml").read_text()
     assert "dispatcher.py" in disp and "actions: write" in disp
+
+
+# --------------------------------------------------------------------------- data/UI audit fixes (2026-11-25)
+def test_fixtures_job_settles_and_evaluates_engine_a():
+    from fil.jobs import JOBS
+
+    names = [n for n, _f, _c in JOBS["fixtures_odds"]()]
+    assert names.index("fixtures") < names.index("settle") < names.index("predict")
+    assert "evaluate" in names
+
+
+def test_overdue_results_are_not_healthy(db):
+    from datetime import timedelta as td
+
+    from fil import health
+    from fil.db import Competition, Fixture, Team, session_scope
+    from fil.timeutil import utcnow
+    from sqlalchemy import select
+
+    with session_scope() as s:
+        comp = s.scalars(select(Competition)).first()
+        a, b = Team(name="Alpha FC", country=comp.country), Team(name="Beta FC", country=comp.country)
+        s.add_all([a, b]); s.flush()
+        for h in (5, 40, 41, 42, 43, 44):
+            ko = utcnow() - td(hours=h)
+            s.add(Fixture(competition_id=comp.id, home_team_id=a.id, away_team_id=b.id, kickoff_utc=ko,
+                          match_date=str((ko - td(days=h)).date()), status="scheduled", first_seen_source="test"))
+    r = health.compute(include_db_check=False)["components"]["results"]
+    assert r["overdue"] == 6 and r["overdue_24h"] == 5 and r["state"] == "STALE"
+
+
+def test_ambiguous_alias_is_never_guessed(db):
+    from fil.db import Team, TeamAlias, session_scope
+    from fil.teamnames import TeamResolver
+
+    with session_scope() as s:
+        t1, t2 = Team(name="Paris FC", country="France"), Team(name="Paris SG", country="France")
+        s.add_all([t1, t2]); s.flush()
+        s.add_all([TeamAlias(alias_norm="paris", source="x", team_id=t1.id, confidence=0.9),
+                   TeamAlias(alias_norm="paris", source="y", team_id=t2.id, confidence=0.9)])
+        s.flush()
+        tid, _ = TeamResolver(s).resolve("Paris", "z", country="France", create=False)
+        assert tid is None
+
+
+def test_stale_cache_marks_provider_degraded(db):
+    from fil.collect import provider
+    from fil.db import DataSource, session_scope
+
+    p = provider("intl_results")
+    p.register()
+    p.stale_served = 2
+    p.mark_success(records=1, requests=1)
+    with session_scope() as s:
+        ds = s.query(DataSource).filter_by(key="intl_results").one()
+        assert ds.status == "degraded" and "stale cache" in ds.last_error
+    p.mark_success(records=1, requests=1)
+    with session_scope() as s:
+        assert s.query(DataSource).filter_by(key="intl_results").one().status == "ok"

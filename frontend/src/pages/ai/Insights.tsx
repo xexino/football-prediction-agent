@@ -19,7 +19,10 @@ export default function Insights() {
   const regions = useMemo(() => Array.from(new Set(items.map((i: any) => i.region))).sort() as string[], [items]);
   const days = useMemo(() => Array.from(new Set(items.map((i: any) => i.kickoff_rome?.slice(0, 10)))).sort() as string[], [items]);
   if (!data) return <Loading error={error} />;
-  const rows = items.filter((i: any) =>
+  // phase as of NOW (the snapshot's phase is frozen at export time)
+  const phaseNow = (i: any) => i.phase === "finished" || i.phase === "live" ? i.phase
+    : Date.now() > new Date(i.kickoff_utc).getTime() ? "awaiting_result" : "upcoming";
+  const rows = items.map((i: any) => ({ ...i, phase: phaseNow(i) })).filter((i: any) =>
     (tab === "all" || i.phase === tab || (tab === "finished" && i.phase === "awaiting_result")) &&
     (!comp || i.competition_name === comp) && (!region || i.region === region) && (!day || i.kickoff_rome?.startsWith(day)) &&
     (!onlyPred || i.engine_b || i.phase === "live") &&

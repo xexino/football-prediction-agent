@@ -112,8 +112,8 @@ export default function Analytics() {
         </>
       )}
       <Card title="Model versions">
-        <table><thead><tr><th>Model</th><th>Created</th><th>Parameters</th></tr></thead>
-          <tbody>{data.models.map((m: any) => <tr key={m.id}><td className="mono">{m.name} {m.version}</td><td className="mono">{m.created_at?.slice(0, 16)}</td><td className="muted mono" style={{ fontSize: 11 }}>{JSON.stringify(m.params)}</td></tr>)}</tbody></table>
+        <div className="tablewrap"><table style={{ tableLayout: "fixed", width: "100%" }}><thead><tr><th style={{ width: "22%" }}>Model</th><th style={{ width: "16%" }}>Created</th><th>Parameters</th></tr></thead>
+          <tbody>{data.models.map((m: any) => <tr key={m.id}><td className="mono">{m.name} {m.version}</td><td className="mono">{m.created_at?.slice(0, 16)}</td><td className="muted mono" style={{ fontSize: 11, wordBreak: "break-all" }}>{JSON.stringify(m.params)}</td></tr>)}</tbody></table></div>
       </Card>
     </>
   );

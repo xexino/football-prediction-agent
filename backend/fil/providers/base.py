@@ -108,8 +108,16 @@ class Provider:
                 info.update(quota)
             circ = dict(info.get("circuit") or {"failures": 0, "open_until": None})
             if ok:
-                ds.status, ds.last_success_at = "ok", now
+                ds.last_success_at = now
                 circ = {"failures": 0, "open_until": None}
+                stale = getattr(self, "stale_served", 0)
+                if stale:  # data came (partly) from an old cache because the provider refused or failed
+                    ds.status, ds.last_error_at = "degraded", now
+                    ds.last_error = f"{stale} request(s) answered from stale cache (provider rate-limited or unavailable)"
+                    info["last_error_kind"] = "rate_limited" if "429" in str(getattr(self, "_last_exc", "")) else "unavailable"
+                    self.stale_served = 0
+                else:
+                    ds.status = "ok"
             else:
                 from ..security import redact
 
@@ -159,6 +167,7 @@ class Provider:
                 with httpx.Client(timeout=45, follow_redirects=True, headers=self.headers()) as c:
                     r = c.get(url, params=params)
                 if r.status_code == 429:
+                    self._last_exc = "429"
                     retry_after = float(r.headers.get("Retry-After", "0") or 0)
                     time.sleep(min(max(retry_after, 2 ** attempt * 5), 30))
                     last_exc = ProviderError(f"rate limited (429) at {self.redact(str(r.url))}")
@@ -178,6 +187,7 @@ class Provider:
                 last_exc = exc
                 time.sleep(2 ** attempt)
         if cpath.exists():
+            self.stale_served = getattr(self, "stale_served", 0) + 1  # reported as DEGRADED, never as a clean success
             log("WARNING", f"provider.{self.key}", f"network failure, serving stale cache for {self.redact(url)}: {last_exc}")
             return FetchResult(cpath.read_text(encoding="utf-8"), self.redact(str(req.url)),
                                datetime.fromtimestamp(cpath.stat().st_mtime, timezone.utc).replace(tzinfo=None), from_cache=True)

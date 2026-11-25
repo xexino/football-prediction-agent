@@ -56,6 +56,11 @@ class TeamResolver:
             # only aliases of teams that actually play in this competition: an alias learnt in another
             # league (e.g. "vitoria" = Guimaraes in Portugal) must never capture a namesake elsewhere
             rows = [r for r in rows if r[0] in candidates]
+        if len({r[0] for r in rows}) > 1:
+            # the same spelling is an alias of several teams (e.g. "paris" = Paris FC and Paris SG): never guess
+            # (audit 2026-11-25 found Rennes–"Paris FC" created from a PSG fixture); fall through to the
+            # competition-restricted fuzzy match, or leave unresolved
+            rows = []
         if rows:
             team_id = rows[0][0]
             team = self.s.get(Team, team_id)
