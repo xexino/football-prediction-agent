@@ -20,12 +20,22 @@ def balance(s: Session) -> float:
     return last.balance_after if last else 0.0
 
 
+def capital(s: Session) -> float:
+    """Virtual capital put in: the initial amount plus any top-ups (never stakes or winnings)."""
+    return round(s.scalar(select(func.coalesce(func.sum(BankrollTransaction.amount), 0)).where(
+        BankrollTransaction.tx_type.in_(("initial", "top_up")))) or 0, 2)
+
+
 def ensure_bankroll(s: Session) -> None:
+    target = settings.risk.initial_bankroll
     if s.scalar(select(func.count(BankrollTransaction.id))) == 0:
-        amt = settings.risk.initial_bankroll
-        s.add(BankrollTransaction(tx_type="initial", amount=amt, balance_after=amt,
-                                  note=f"Initial virtual bankroll €{amt:.2f} (simulation)"))
+        s.add(BankrollTransaction(tx_type="initial", amount=target, balance_after=target,
+                                  note=f"Initial virtual bankroll €{target:.2f} (simulation)"))
         s.flush()
+        return
+    missing = round(target - capital(s), 2)
+    if missing > 0:  # the owner raised the virtual bankroll: book the difference once, history stays as it was
+        _tx(s, "top_up", missing, None, f"Virtual bankroll raised to €{target:.2f} by the owner (simulation, +€{missing:.2f})")
 
 
 def _tx(s: Session, tx_type: str, amount: float, bet_id: int | None, note: str) -> None:

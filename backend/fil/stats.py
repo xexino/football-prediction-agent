@@ -61,7 +61,7 @@ def summary() -> dict:
     with session_scope() as s:
         bets = bets_table(s)
         txs = s.scalars(select(BankrollTransaction).order_by(BankrollTransaction.id)).all()
-        start = settings.risk.initial_bankroll
+        start = round(sum(t.amount for t in txs if t.tx_type in ("initial", "top_up")), 2) if txs else settings.risk.initial_bankroll
         bal = txs[-1].balance_after if txs else start
         # bankroll history excluding pending stakes (equity = balance + pending stakes at cost)
         hist, pending_stakes = [], 0.0

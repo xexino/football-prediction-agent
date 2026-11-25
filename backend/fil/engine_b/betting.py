@@ -17,10 +17,10 @@ from ..timeutil import utcnow
 
 @dataclass
 class RiskB:
-    initial_bankroll: float = 100.0
-    stake: float = 1.0
+    initial_bankroll: float = 500.0   # owner decision 2026-11-25 (was 100); difference booked as "top_up"
+    stake: float = 10.0               # was 1.0
     max_bets_per_match: int = 2
-    max_daily_exposure: float = 10.0
+    max_daily_exposure: float = 100.0  # scaled with the stake (was 10 at €1 stakes)
     min_quality: float = 60.0
     min_confidence: float = 50.0
     market_shrink: float = 0.25          # p = w*model + (1-w)*market  (Engine A uses 0.10)
@@ -49,6 +49,12 @@ def ensure_bankroll(s) -> None:
         s.add(EBBankrollTransaction(tx_type="initial", amount=RISK.initial_bankroll, balance_after=RISK.initial_bankroll,
                                     note="Engine B initial virtual bankroll (simulation)"))
         s.flush()
+        return
+    cap = s.scalar(select(func.coalesce(func.sum(EBBankrollTransaction.amount), 0)).where(
+        EBBankrollTransaction.tx_type.in_(("initial", "top_up")))) or 0
+    missing = round(RISK.initial_bankroll - cap, 2)
+    if missing > 0:
+        _tx(s, "top_up", missing, None, f"Engine B virtual bankroll raised to €{RISK.initial_bankroll:.2f} by the owner (simulation)")
 
 
 def _tx(s, kind, amount, bet_id, note):

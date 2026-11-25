@@ -87,7 +87,7 @@ export default function Simple() {
         <div className="simple-card">
           <div className="simple-k">Virtual money</div>
           <div className="simple-v">{ov ? `€${(ov.bankroll.equity ?? ov.bankroll.current_bankroll).toFixed(2)}` : "…"}</div>
-          <div className="simple-t">Started with €100. {ov ? `€${ov.bankroll.current_bankroll.toFixed(2)} free + €${(ov.bankroll.pending_exposure ?? 0).toFixed(2)} on ${ov.bankroll.pending} bet${ov.bankroll.pending === 1 ? "" : "s"} waiting for a result.` : ""} The model only "bets" €1 when the price is clearly too generous; most days the right answer is no bet.</div>
+          <div className="simple-t">Virtual capital €{ov ? ov.bankroll.starting_bankroll.toFixed(0) : "…"}. {ov ? `€${ov.bankroll.current_bankroll.toFixed(2)} free + €${(ov.bankroll.pending_exposure ?? 0).toFixed(2)} on ${ov.bankroll.pending} bet${ov.bankroll.pending === 1 ? "" : "s"} waiting for a result.` : ""} The model "bets" a flat €10 only when the price is clearly too generous; most days the right answer is no bet.</div>
         </div>
       </div>
 

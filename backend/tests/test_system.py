@@ -2,6 +2,8 @@
 from datetime import datetime, timedelta
 
 import pytest
+
+from fil.config import settings as _cfg
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError, OperationalError
 
@@ -194,10 +196,10 @@ def test_bankroll_and_risk_rules(db):
     with session_scope() as s:
         bets = s.scalars(select(VirtualBet)).all()
         assert 1 <= len(bets) <= 3
-        assert all(b.stake == 1.0 for b in bets)
+        assert all(b.stake == _cfg.risk.stake for b in bets)
         txs = s.scalars(select(BankrollTransaction).order_by(BankrollTransaction.id)).all()
-        assert txs[0].tx_type == "initial" and txs[0].amount == 100.0
-        assert txs[-1].balance_after == 100.0 - len(bets)
+        assert txs[0].tx_type == "initial" and txs[0].amount == _cfg.risk.initial_bankroll
+        assert txs[-1].balance_after == _cfg.risk.initial_bankroll - _cfg.risk.stake * len(bets)
 
 
 def test_max_three_bets_per_match(db):
@@ -247,7 +249,7 @@ def test_settlement_and_no_resettle(db, monkeypatch):
             assert b.status in ("won", "lost")
             assert b.status == ("won" if b.selection == "home" else "lost")
         bal = s.scalars(select(BankrollTransaction).order_by(BankrollTransaction.id.desc())).first().balance_after
-        assert bal == pytest.approx(100 - len(bets) + sum(b.price for b in home), abs=0.011)
+        assert bal == pytest.approx(_cfg.risk.initial_bankroll - _cfg.risk.stake * len(bets) + _cfg.risk.stake * sum(b.price for b in home), abs=0.011 * _cfg.risk.stake)
         b = bets[0]
         b.status = "void"
         with pytest.raises(IMMUTABLE_ERR):
@@ -280,7 +282,7 @@ def test_postponed_bet_voided_after_48h(db, monkeypatch):
     assert betting.settle_pending()["voided"] == len(ids)
     with session_scope() as s:
         assert {b.status for b in s.scalars(select(VirtualBet))} == {"void"}
-        assert s.scalars(select(BankrollTransaction).order_by(BankrollTransaction.id.desc())).first().balance_after == 100.0
+        assert s.scalars(select(BankrollTransaction).order_by(BankrollTransaction.id.desc())).first().balance_after == _cfg.risk.initial_bankroll
 
 
 def test_select_bets_avoids_correlation():
@@ -385,7 +387,7 @@ def test_api_endpoints(db):
             assert r.status_code == 200, ep
         assert c.get("/api/health").json()["simulation_only"] is True
         ov = c.get("/api/overview").json()
-        assert ov["bankroll"]["starting_bankroll"] == 100.0
+        assert ov["bankroll"]["starting_bankroll"] == _cfg.risk.initial_bankroll
         up = c.get("/api/upcoming").json()["fixtures"]
         assert up and "prediction" in up[0]
         pid = c.get("/api/predictions").json()["items"][0]["id"]

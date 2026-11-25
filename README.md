@@ -7,7 +7,7 @@ An autonomous football research, prediction and **virtual** betting laboratory. 
 * scores data quality;
 * predicts matches with statistical models;
 * compares its probabilities with de-vigged market prices;
-* places **simulated** €1 bets only when strict value and risk rules pass, and otherwise says **NO BET**;
+* places **simulated** €10 bets only when strict value and risk rules pass, and otherwise says **NO BET**;
 * settles bets from verified results and tracks performance;
 * shows everything in a live dashboard.
 
@@ -20,7 +20,7 @@ An autonomous football research, prediction and **virtual** betting laboratory. 
 | Fixture discovery, results, stats, xG, odds | ✅ **Live** from football-data.co.uk: 38 leagues across Europe, the Americas and Asia, ~47k matches, ~300k odds snapshots |
 | Prediction engine | ✅ Dixon-Coles + Elo ensemble. Walk-forward validated: beats the baseline, **does not beat the market** (see `docs/DECISIONS.md`) |
 | Value engine / NO BET | ✅ Conservative. Bets only when a bookmaker's price beats the sharp market by more than the margin |
-| Virtual bankroll & settlement | ✅ €100 start, €1 flat stake, ≤3 bets/match, AH quarter lines, voids, conflicts held pending |
+| Virtual bankroll & settlement | ✅ €500 virtual capital (raised from €100 on 25 Nov 2026), €10 flat stake (was €1), ≤3 bets/match, AH quarter lines, voids, conflicts held pending |
 | Immutability / audit | ✅ Enforced by SQLite triggers. Every prediction stores its inputs, odds snapshot IDs and sources |
 | Scheduler, reports, backups | ✅ In-process APScheduler, or GitHub Actions autopilot |
 | Dashboard | ✅ 8 pages, reads real DB data only |
@@ -29,7 +29,7 @@ An autonomous football research, prediction and **virtual** betting laboratory. 
 | UEFA cups, CAF & African leagues, national teams | ⚠️ Fixtures are discovered, but these competitions are **ineligible** (not enough free history/odds). Adding API keys unlocks more |
 
 ## AI Match Insights (Engine B), new in v2.0.0
-An independent second engine with its own models, records and €100 virtual bankroll. It covers goals, BTTS, totals,
+An independent second engine with its own models, records and €500 virtual bankroll (€10 stakes). It covers goals, BTTS, totals,
 correct score, corners, cards and shots, and writes an evidence-only **AI Match Analyst** report for every fixture.
 The release also adds a **live mode** layer (football-data.org delayed scores now; full live data with
 `API_FOOTBALL_KEY`) and a global coverage matrix.
