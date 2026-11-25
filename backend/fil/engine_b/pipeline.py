@@ -62,9 +62,11 @@ def _snaps(s, fixture_id, now) -> dict:
 
 
 def market_1x2(snaps: dict):
+    from ..value import plausible
+
     for b in ("BFE", "PS", "Avg", "B365"):
         o = snaps.get(b)
-        if o is not None and o.home and o.draw and o.away:
+        if o is not None and plausible(b, o, ("home", "draw", "away")):
             p = devig([o.home, o.draw, o.away])
             return {"home": p[0], "draw": p[1], "away": p[2], "bookmaker": b}
     return None

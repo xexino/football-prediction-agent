@@ -135,3 +135,14 @@ This is the first council review. Overlaps with [`PRODUCT_BACKLOG.md`](PRODUCT_B
 | R-03 | Q-3 (Actions updates) |
 
 Earlier items keep their IDs; the council IDs reference them, so no duplicate issues are created.
+
+## Register update 2026-11-25 (model council)
+| Item | Status | Reason |
+|---|---|---|
+| Hyperparameter tuning of Engine A (decay, ridge, Elo K, cadence, newcomer prior, per-league weights) | REJECTED | 13 walk-forward variants all within ±0.001 LL |
+| Market-implied ratings pooled into Engine A | REJECTED | Lagged copy of the market; breaks value-engine independence; no closing-line-value evidence |
+| Clean reference prices (implausible BFE rows rejected) | IMPLEMENTED | `backend/fil/value.py` `plausible()`; 8 % cap measured against Pinnacle |
+| SOT-xG proxy in Dixon-Coles | UNDER DISCUSSION | CI touches 0 against the production baseline; full ensemble test pending |
+| UEFA team identity (council D-02) | APPROVED WITH CONDITIONS | Reversible migration, re-backtest, UCL predictor |
+| Market shown as the benchmark in "My view" | IMPLEMENTED | Model weight vs the market ≈ 0 |
+| 6-hourly council cycle (scheduled task) | IMPLEMENTED | Reports in `docs/council/cycles/` |
