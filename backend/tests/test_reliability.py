@@ -543,3 +543,26 @@ def test_stale_cache_marks_provider_degraded(db):
     p.mark_success(records=1, requests=1)
     with session_scope() as s:
         assert s.query(DataSource).filter_by(key="intl_results").one().status == "ok"
+
+
+def test_corrupt_exchange_prices_are_not_used_as_reference():
+    from types import SimpleNamespace as NS
+
+    from fil.value import pick, plausible
+
+    bad_bfe = NS(home=2.0, draw=1.10, away=4.0, over25=None, under25=None)   # overround ~ +66 %
+    ps = NS(home=2.05, draw=3.6, away=3.9, over25=None, under25=None)
+    assert not plausible("BFE", bad_bfe, ("home", "draw", "away"))
+    assert plausible("PS", ps, ("home", "draw", "away"))
+    assert pick({"BFE": bad_bfe, "PS": ps}, ["BFE", "PS", "Avg"], ("home", "draw", "away")) is ps
+    good_bfe = NS(home=2.1, draw=3.7, away=4.1, over25=None, under25=None)
+    assert pick({"BFE": good_bfe, "PS": ps}, ["BFE", "PS"], ("home", "draw", "away")) is good_bfe
+
+
+def test_engine_b_market_skips_corrupt_bfe():
+    from types import SimpleNamespace as NS
+
+    from fil.engine_b.pipeline import market_1x2
+
+    m = market_1x2({"BFE": NS(home=2.0, draw=1.10, away=4.0), "PS": NS(home=2.05, draw=3.6, away=3.9)})
+    assert m["bookmaker"] == "PS"

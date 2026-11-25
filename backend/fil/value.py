@@ -40,10 +40,27 @@ class Assessment:
         return not self.reject_reasons
 
 
+# A reference price must be plausible. About 5 % of football-data.co.uk BFE (Betfair exchange) pre-match rows carry
+# overrounds of 23–196 % (e.g. a 1.10 draw against 3.75 elsewhere): they made the "market" look worse than it is and
+# distorted value checks (model council, 2026-11-25). Measured on 10.5k BFE rows with a Pinnacle price: up to 8 %
+# overround BFE agrees with Pinnacle (p90 gap <= 2.5 pp); above 15 % the p90 gap is 31 pp. Rows above
+# EXCHANGE_MAX_OVERROUND are rejected and the next reference book is used. Other books: only obvious garbage is rejected.
+EXCHANGE_MAX_OVERROUND = 0.08
+BOOK_MAX_OVERROUND = 0.25
+
+
+def plausible(book: str, o, need: tuple[str, ...]) -> bool:
+    prices = [getattr(o, k) for k in need]
+    if not all(prices) or any(p <= 1.0 for p in prices):
+        return False
+    orr = overround(prices)
+    return orr <= (EXCHANGE_MAX_OVERROUND if book == "BFE" else BOOK_MAX_OVERROUND)
+
+
 def pick(snaps: dict, prefs: list[str], need: tuple[str, ...], bookable: bool = False):
     for b in prefs:
         o = snaps.get(b)
-        if o is not None and all(getattr(o, k) for k in need):
+        if o is not None and plausible(b, o, need):
             return o
     if bookable:
         for b, o in snaps.items():

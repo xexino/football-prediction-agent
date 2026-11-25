@@ -74,7 +74,7 @@ export default function Simple() {
           <div className="simple-t">
             {done.length ? <>On the last {done.length} finished matches, the result the model thought most likely happened {ours} times.
               {mk.length ? <> On the {mk.length} of them with bookmaker prices: model {oursOnMk}/{mk.length}, bookmakers {mkRight}/{mk.length}.</> : null}
-              {" "}Guessing blindly is right about 1 time in 3. Bookmakers are hard to beat; we report honestly when they are better.</>
+              {" "}Guessing blindly is right about 1 time in 3. Tested on thousands of past matches, the bookmakers' prices are still slightly more accurate than our model, so treat their numbers as the benchmark and ours as a second opinion.</>
               : "Results are still coming in; this fills up as matches are played."}
           </div>
         </div>
@@ -106,6 +106,8 @@ export default function Simple() {
                 <span style={{ width: P(p.away), background: "#3b82f6" }} title={`${i.away} ${P(p.away)}`} />
               </div>
               <div className="simple-small">{i.home} {P(p.home)} · draw {P(p.draw)} · {i.away} {P(p.away)}{top ? ` · most likely score ${top}` : ""}{goals ? ` · ${goals}` : ""}</div>
+              {i.market && (() => { const mk = pick(i.market, i.home, i.away); return (
+                <div className="simple-small">Bookmakers: <b>{mk.who}</b> ({P(mk.pct)}) — {i.home} {P(i.market.home)} · draw {P(i.market.draw)} · {i.away} {P(i.market.away)}{mk.key === pk.key ? " · model and bookmakers agree" : " · model and bookmakers disagree"}</div>); })()}
               <div className="simple-result">
                 {res ? <>Final score {i.score} — {res === pk.key ? <b className="pos">the model was right ✓</b> : <b className="neg">the model was wrong ✗</b>}</>
                   : started ? <span className="warn">Playing or just finished — result coming soon</span> : <span className="muted">Not started yet</span>}

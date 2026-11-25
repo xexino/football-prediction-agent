@@ -129,7 +129,10 @@ def predict_upcoming(engine: Engine | None = None, horizon_days: int = HORIZON_D
                 summary["ineligible"] += 1
                 continue
             # ---------------------------------------------------------------- data quality
-            ref = next((snaps[b] for b in ("BFE", "PS", "Pinnacle", "Avg") if b in snaps and snaps[b].home), None)
+            from .value import plausible
+
+            ref = next((snaps[b] for b in ("BFE", "PS", "Pinnacle", "Avg")
+                        if b in snaps and plausible(b, snaps[b], ("home", "draw", "away"))), None)
             ref_or = overround([ref.home, ref.draw, ref.away]) if ref and ref.draw else None
             odds_age = min(((now - o.retrieved_at).total_seconds() / 3600 for o in snaps.values()), default=None)
             n_books = len([b for b, o in snaps.items() if b not in ("Max", "Avg") and o.home])
