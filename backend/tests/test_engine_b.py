@@ -50,7 +50,7 @@ def test_engine_b_never_touches_engine_a_records(db):
                  [t.balance_after for t in s.scalars(select(BankrollTransaction))],
                  json.dumps([p.probs for p in s.scalars(select(Prediction))], sort_keys=True))
         assert before == after
-        assert s.scalars(select(EBBankrollTransaction)).first().balance_after == 100.0  # own bankroll
+        assert s.scalars(select(EBBankrollTransaction)).first().balance_after == betting_risk().initial_bankroll  # own bankroll
 
 
 # ------------------------------------------------------------------ features: no leakage
@@ -190,7 +190,7 @@ def test_engine_b_ledger_settlement_independent(db, monkeypatch):
         cand = {"market": "OU25", "selection": "over", "line": 2.5, "price": 2.0, "bookmaker": "B365",
                 "odds_observation_id": None, "model_prob": 0.6, "market_prob": 0.5, "ev": 0.05}
         b = betting.place(s, prediction=p, fixture=fx, cand=cand, quality=80)
-        assert b is not None and betting.balance(s) == 99.0
+        assert b is not None and betting.balance(s) == betting.RISK.initial_bankroll - betting.RISK.stake
         ko = fx.kickoff_utc
     after_kickoff(monkeypatch, ko)
     ingest_records([rec("Team 0", "Team 1", ko, status="finished", hg=2, ag=1)], "football_data_uk")
@@ -198,7 +198,7 @@ def test_engine_b_ledger_settlement_independent(db, monkeypatch):
     assert betting.settle_pending()["settled"] == 0  # idempotent
     with session_scope() as s:
         assert s.scalars(select(EBBet)).one().status == "won"
-        assert s.scalars(select(EBBankrollTransaction).order_by(EBBankrollTransaction.id.desc())).first().balance_after == 101.0
+        assert s.scalars(select(EBBankrollTransaction).order_by(EBBankrollTransaction.id.desc())).first().balance_after == betting.RISK.initial_bankroll + betting.RISK.stake  # won at 2.00
         assert s.scalar(select(func.count(BankrollTransaction.id))) <= 1  # Engine A ledger untouched
         b = s.scalars(select(EBBet)).one()
         b.status = "lost"
@@ -358,3 +358,9 @@ def test_engine_b_api_and_static_export(db, tmp_path):
     cli.export_static(tmp_path / "site")
     assert (tmp_path / "site" / "data" / "insights" / f"{fid}.json").exists()
     assert (tmp_path / "site" / "data" / "engine_b" / "performance.json").exists()
+
+
+def betting_risk():
+    from fil.engine_b.betting import RISK
+
+    return RISK

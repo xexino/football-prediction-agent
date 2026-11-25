@@ -99,7 +99,7 @@ function Shell() {
             <NavLink key={to} to={to}><span className="ico">{ico}</span>{label}</NavLink>
           ))}
         </nav>
-        <div className="sim-banner"><b>SIMULATION ONLY.</b> Virtual €100 bankroll. No real-money bets, no bookmaker accounts, no transactions.</div>
+        <div className="sim-banner"><b>SIMULATION ONLY.</b> Virtual €500 bankroll, €10 flat stakes. No real-money bets, no bookmaker accounts, no transactions.</div>
         <div className="sim-banner">
           <span className={`dot ${h?.status === "ok" ? "ok" : h ? "err" : ""}`} /> backend {h?.status || "…"}<br />
           <span className={`dot ${h?.scheduler_running ? "ok" : "warn"}`} /> scheduler {h ? (h.scheduler_running ? "running" : "off / static snapshot") : "…"}<br />
@@ -108,7 +108,7 @@ function Shell() {
         </div>
       </aside>
       <main className="main">
-        <div className="mobile-disclaimer"><b>SIMULATION ONLY.</b> Virtual €100 bankroll · no real money · health {hd?.overall ?? "…"} · data {hd ? ago(hd.computed_at) : "—"}</div>
+        <div className="mobile-disclaimer"><b>SIMULATION ONLY.</b> Virtual €500 bankroll · no real money · health {hd?.overall ?? "…"} · data {hd ? ago(hd.computed_at) : "—"}</div>
         <OpsBanner ops={ops} />
         <FreshnessBanner hd={hd} />
         <Routes>

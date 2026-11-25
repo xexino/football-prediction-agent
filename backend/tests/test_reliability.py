@@ -699,3 +699,32 @@ def test_thesportsdb_results_cache_stays_fresh():
 def test_postponed_fixtures_get_their_own_phase():
     src = (ROOT / "backend/fil/api_b.py").read_text()
     assert '"postponed" if f.status in ("postponed", "cancelled", "abandoned")' in src
+
+
+# --------------------------------------------------------------------------- owner decision: €500 bankroll, €10 stakes
+def test_bankroll_top_up_keeps_history_and_chain(db):
+    from sqlalchemy import select
+
+    from fil.betting import capital, ensure_bankroll
+    from fil.config import settings
+    from fil.db import BankrollTransaction, session_scope
+    from fil.integrity import check_database
+
+    assert settings.risk.stake == 10.0 and settings.risk.max_stake == 10.0 and settings.risk.initial_bankroll == 500.0
+    with session_scope() as s:  # an existing €100 ledger with one €1 stake (history before the change)
+        s.add(BankrollTransaction(tx_type="initial", amount=100.0, balance_after=100.0, note="old"))
+        s.flush()
+    with session_scope() as s:
+        ensure_bankroll(s)
+        ensure_bankroll(s)  # idempotent
+    with session_scope() as s:
+        txs = s.scalars(select(BankrollTransaction).order_by(BankrollTransaction.id)).all()
+        assert [(t.tx_type, t.amount, t.balance_after) for t in txs] == [("initial", 100.0, 100.0), ("top_up", 400.0, 500.0)]
+        assert capital(s) == 500.0
+    assert check_database()["ok"]
+
+
+def test_engine_b_stake_scaled():
+    from fil.engine_b.betting import RISK
+
+    assert RISK.stake == 10.0 and RISK.initial_bankroll == 500.0 and RISK.max_daily_exposure == 100.0

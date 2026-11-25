@@ -28,9 +28,11 @@ def _path(name: str, default: str) -> Path:
 class RiskRules:
     """Virtual-betting risk rules. Conservative by design."""
 
-    initial_bankroll: float = 100.0
-    stake: float = 1.0  # flat stake (€)
-    max_stake: float = 1.0
+    # Owner decision 2026-11-25: virtual bankroll €500 and flat €10 stakes from now on (was €100 / €1). Existing
+    # records are untouched: the difference is booked once as a visible "top_up" ledger entry (betting.ensure_bankroll).
+    initial_bankroll: float = 500.0
+    stake: float = 10.0  # flat stake (€)
+    max_stake: float = 10.0
     max_bets_per_match: int = 3
     max_bets_per_day: int = 15
     staking_method: str = "flat"  # only 'flat' is enabled until validated
