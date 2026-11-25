@@ -116,8 +116,8 @@ export default function Simple() {
                 <div className="simple-small">Bookmakers: <b>{mk.who}</b> ({P(mk.pct)}) — {i.home} {P(i.market.home)} · draw {P(i.market.draw)} · {i.away} {P(i.market.away)}{mk.key === pk.key ? " · model and bookmakers agree" : " · model and bookmakers disagree"}</div>); })()}
               <div className="simple-result">
                 {res ? <>Final score {i.score} — {res === pk.key ? <b className="pos">the model was right ✓</b> : <b className="neg">the model was wrong ✗</b>}</>
-                  : st === "live" ? <span className="warn">Playing now (or just finished)</span>
-                  : st === "awaiting" ? <span className="warn">Finished — waiting for the official result</span>
+                  : st === "live" ? <span className="warn">Playing now{i.live?.score ? <> — <b>{i.live.score}</b> <span className="muted">(delayed score, {Math.max(0, Math.round((Date.now() - new Date(i.live.at).getTime()) / 60000))} min old)</span></> : " (or just finished)"}</span>
+                  : st === "awaiting" ? <span className="warn">Finished — waiting for the official result{i.live?.score ? <> (last live score {i.live.score})</> : null}</span>
                   : st === "postponed" ? <span className="muted">Postponed / not played</span> : <span className="muted">Not started yet</span>}
               </div>
             </Link>

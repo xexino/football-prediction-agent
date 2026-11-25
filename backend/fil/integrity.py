@@ -26,7 +26,11 @@ def manifest(db_path: Path | str | None = None) -> dict:
     has *fewer* audit records than the one it would replace (accidental reset / stale restore)."""
     con = sqlite3.connect(str(db_path or settings.db_path))
     try:
-        return {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in MANIFEST_TABLES}
+        m = {t: con.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0] for t in MANIFEST_TABLES}
+        # change signals (not shrink-guarded): a live run that only records results must still be persisted
+        m["finished_fixtures"] = con.execute("SELECT COUNT(*) FROM fixtures WHERE status='finished'").fetchone()[0]
+        m["result_observations"] = con.execute("SELECT COUNT(*) FROM result_observations").fetchone()[0]
+        return m
     finally:
         con.close()
 

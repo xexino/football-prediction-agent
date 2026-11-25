@@ -117,7 +117,12 @@ JOBS = {
     "results": _steps_results,
     "prematch_review": lambda: [("predict", lambda: pipeline.predict_upcoming(), True)],
     "weekly": _steps_weekly,
-    "live": lambda: [("eb_live", _eb("live"), False)],
+    # live polling also pulls football-data.org results (1 request) and settles/evaluates, so a finished Champions
+    # League or top-league match gets its verified result within ~20 min instead of at the next 3-hourly run
+    "live": lambda: [("eb_live", _eb("live"), False),
+                     ("fdorg_results", lambda: collect.collect_fdorg("quick"), False),
+                     ("settle", settle_pending, False), ("evaluate", pipeline.evaluate_predictions, False),
+                     ("eb_settle", _eb("settle"), False), ("eb_evaluate", _eb("evaluate"), False)],
     "engine_b": lambda: [("eb_retrain", _eb("retrain"), False)] + EB_STEPS,
     "backup": lambda: [("backup", lambda: str(backup.backup(verify=True)), True)],
 }
