@@ -43,6 +43,33 @@ function StatusLight({ hd, ops }: { hd: any; ops: any }) {
   );
 }
 
+/** CFO forecast (25 Nov 2026): central return −10 % per euro staked, realistic range −30 % … +3 %
+ *  (backtest 40 bets −29.7 %; model not better than the market; bookmaker margin ~5 %). */
+const FORECAST = { central: -0.10, low: -0.30, high: 0.03 };
+
+function ForecastVsReality({ ov }: { ov: any }) {
+  if (!ov) return null;
+  const b = ov.bankroll;
+  const staked = b.staked || 0, actual = b.profit || 0;
+  const exp = staked * FORECAST.central, lo = staked * FORECAST.low, hi = staked * FORECAST.high;
+  const verdict = !b.settled ? "no settled bets yet"
+    : actual > hi ? "better than the optimistic forecast (probably luck so far)"
+    : actual < lo ? "worse than the pessimistic forecast"
+    : actual >= exp ? "within the forecast range, above the central estimate" : "within the forecast range, below the central estimate";
+  const eur = (x: number) => `${x < 0 ? "−" : "+"}€${Math.abs(x).toFixed(2)}`;
+  return (
+    <div className="simple-card" style={{ marginTop: 12 }}>
+      <div className="simple-k">Forecast vs reality (settled bets only)</div>
+      <div className="simple-t" style={{ marginTop: 6 }}>
+        {b.settled} settled bet{b.settled === 1 ? "" : "s"}, €{staked.toFixed(0)} staked. <b>Actual result {eur(actual)}</b> ·
+        forecast {eur(exp)} (range {eur(lo)} to {eur(hi)}) → <b>{verdict}</b>.
+        {b.avg_clv != null && <> Average closing-line value {(b.avg_clv * 100).toFixed(1)}% (positive = we bet at better prices than the market's final price; the best early sign of a real edge).</>}
+        {" "}A few dozen bets are mostly luck; the comparison becomes meaningful after ~150 bets for closing-line value and many hundreds for profit.
+      </div>
+    </div>
+  );
+}
+
 export default function Simple() {
   const { data: ins } = useApi<any>("insights", 120000);
   const { data: cmp } = useApi<any>("engine_compare", 300000);
@@ -90,6 +117,8 @@ export default function Simple() {
           <div className="simple-t">Virtual capital €{ov ? ov.bankroll.starting_bankroll.toFixed(0) : "…"}. {ov ? `€${ov.bankroll.current_bankroll.toFixed(2)} free + €${(ov.bankroll.pending_exposure ?? 0).toFixed(2)} on ${ov.bankroll.pending} bet${ov.bankroll.pending === 1 ? "" : "s"} waiting for a result.` : ""} The model "bets" a flat €10 only when the price is clearly too generous; most days the right answer is no bet.</div>
         </div>
       </div>
+
+      <ForecastVsReality ov={ov} />
 
       <h2 className="simple-h">Today's games ({todays.length})</h2>
       {!todays.length && <div className="empty">No predicted games today.</div>}
