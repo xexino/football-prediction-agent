@@ -39,6 +39,9 @@ def main(argv=None):
     ig.add_argument("--pre-migration", action="store_true",
                     help="only require triggers that every persisted database already has (before `migrate`)")
     sub.add_parser("migrate", help="create missing tables/triggers (idempotent)")
+    idr = sub.add_parser("identity-dry-run", help="propose (never apply) the UEFA team identity alias map")
+    idr.add_argument("out_md")
+    idr.add_argument("--json")
     m = sub.add_parser("manifest")
     m.add_argument("out")
     g = sub.add_parser("guard", help="exit 1 if DB must not replace the persisted one")
@@ -63,6 +66,13 @@ def main(argv=None):
         res = check_database(pre_migration=a.pre_migration)
         print(json.dumps(res, indent=1))
         sys.exit(0 if res["ok"] else 1)
+
+    if a.cmd == "identity-dry-run":  # read-only: opens the database in read-only mode, writes only the report
+        from .identity import dry_run
+
+        r = dry_run(Path(a.out_md), Path(a.json) if a.json else None)
+        print(f"{len(r['proposals'])} proposed merges, {len(r['ambiguous'])} ambiguous, {len(r['unmatched'])} unmatched -> {a.out_md}")
+        return
 
     from .db import init_db
 

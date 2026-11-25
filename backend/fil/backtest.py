@@ -15,8 +15,9 @@ from sqlalchemy import select
 
 from .config import settings
 from .db import BacktestRun, Competition, Fixture, ModelVersion, OddsObservation, session_scope
-from .models.engine import MODEL_NAME, MODEL_VERSION, Engine, load_matches
+from .models.engine import MODEL_NAME, MODEL_VERSION, PARAMS, Engine, load_matches
 from .models.markets import devig, settle
+from .value import plausible
 from .quality import confidence as confidence_score
 from .quality import score as quality_score
 from .value import assess, book_dispersion, select_bets
@@ -99,7 +100,10 @@ def _by_prob_range(rows):
 
 
 def run_backtest(start: datetime | None = None, end: datetime | None = None, step_days: int = 14,
-                 comps: list[str] | None = None, progress=None) -> dict:
+                 comps: list[str] | None = None, progress=None, params: dict | None = None,
+                 per_match: list | None = None, store: bool = True) -> dict:
+    """params: Engine parameter overrides (experiments). per_match: if a list is given, (fixture_id, kickoff,
+    ensemble 1X2, market 1X2 or None, outcome) is appended for paired comparisons. store=False: no BacktestRun row."""
     comps = comps or DEFAULT_COMPS
     end = end or utcnow()
     start = start or datetime(end.year - 1 if end.month >= 8 else end.year - 2, 8, 1)
@@ -133,7 +137,7 @@ def run_backtest(start: datetime | None = None, end: datetime | None = None, ste
         t2 = min(t + timedelta(days=step_days), end)
         window = [m for m in target if t <= m["kickoff"] < t2]
         if window:
-            eng = Engine().build(all_matches, t, comps=comps, prev=prev)
+            eng = Engine(params={**PARAMS, **(params or {})}).build(all_matches, t, comps=comps, prev=prev)
             prev = eng
             for m in window:
                 snaps = odds.get(m["id"], {})
@@ -146,9 +150,12 @@ def run_backtest(start: datetime | None = None, end: datetime | None = None, ste
                 vec = lambda d: [d["home"], d["draw"], d["away"]]
                 rows = {"ensemble": vec(comp_p["ensemble"]), "dixon_coles": vec(comp_p["dixon_coles"]),
                         "elo": vec(comp_p["elo"]), "baseline": list(freq[m["comp"]] / freq[m["comp"]].sum())}
-                ref = next((snaps[b] for b in ("BFE", "PS", "Avg") if b in snaps and snaps[b].home and snaps[b].draw), None)
+                # clean reference: implausible (corrupt) exchange rows are skipped, see value.plausible
+                ref = next((snaps[b] for b in ("BFE", "PS", "Avg") if b in snaps and plausible(b, snaps[b], ("home", "draw", "away"))), None)
                 if ref is not None:
                     rows["market"] = devig([ref.home, ref.draw, ref.away])
+                if per_match is not None:
+                    per_match.append((m["id"], m["kickoff"], rows["ensemble"], rows.get("market"), o))
                 dates.append(m["kickoff"])
                 for k, v in rows.items():
                     res[k].append((v, o))
@@ -241,6 +248,9 @@ def run_backtest(start: datetime | None = None, end: datetime | None = None, ste
         "note": "Walk-forward: models refit every step on data strictly before the step date. Strategy uses Bet365 "
                 "pre-match prices with the live value rules. Small samples are not evidence of profitability.",
     }
+    out["reference_prices"] = "clean: exchange rows above 8 % overround skipped (value.plausible)"
+    if not store:
+        return out
     with session_scope() as s:
         s.add(BacktestRun(params={"start": out["start"], "end": out["end"], "step_days": step_days, "comps": comps}, results=out))
         mv = s.scalars(select(ModelVersion).where(ModelVersion.name == MODEL_NAME, ModelVersion.version == MODEL_VERSION)).first()

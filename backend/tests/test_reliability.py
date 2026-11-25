@@ -566,3 +566,33 @@ def test_engine_b_market_skips_corrupt_bfe():
 
     m = market_1x2({"BFE": NS(home=2.0, draw=1.10, away=4.0), "PS": NS(home=2.05, draw=3.6, away=3.9)})
     assert m["bookmaker"] == "PS"
+
+
+# --------------------------------------------------------------------------- model 1.1.0 + identity dry run
+def test_sot_proxy_real_xg_first_and_missing_stays_missing():
+    from fil.models.engine import PARAMS, with_sot_proxy
+
+    ms = [{"hxg": 1.4, "axg": 0.9, "hsot": 10, "asot": 2},      # real xG wins
+          {"hxg": None, "axg": None, "hsot": 5, "asot": 3},    # proxy
+          {"hxg": None, "axg": None, "hsot": None, "asot": 4}]  # incomplete SOT: stays missing (never 0)
+    out = with_sot_proxy(ms, PARAMS["sot_xg_coef"])
+    assert (out[0]["hxg"], out[0]["axg"]) == (1.4, 0.9)
+    assert out[1]["hxg"] == pytest.approx(5 * 0.3184) and out[1]["axg"] == pytest.approx(3 * 0.3184)
+    assert out[2]["hxg"] is None and out[2]["axg"] is None
+    assert ms[1]["hxg"] is None  # input not mutated
+    assert PARAMS["dc_sot_proxy"] is True and PARAMS["sot_xg_coef"] == 0.3184  # frozen
+
+
+def test_identity_dry_run_never_writes(db, tmp_path):
+    from fil.config import settings
+    from fil.db import Team, session_scope
+    from fil.identity import dry_run
+    from fil.integrity import manifest
+
+    with session_scope() as s:
+        s.add_all([Team(name="Arsenal", country="England"), Team(name="Arsenal", country="Europe")])
+    before = (manifest(), Path(settings.db_path).stat().st_mtime)
+    r = dry_run(tmp_path / "r.md", tmp_path / "r.json")
+    assert (manifest(), Path(settings.db_path).stat().st_mtime) == before
+    assert (tmp_path / "r.md").read_text().startswith("# UEFA team identity")
+    assert r["europe_teams"] == 1

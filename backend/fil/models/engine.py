@@ -18,10 +18,15 @@ from .elo import Elo, OrderedLogit
 from .markets import markets_from_matrix, rescale_to_1x2
 
 MODEL_NAME = "fil-ensemble"
-MODEL_VERSION = "1.0.0"
+MODEL_VERSION = "1.1.0"  # 1.1.0: shots-on-target xG proxy (walk-forward 2026-11-25)
 PARAMS = {
     "dc_xi_per_day": 0.0019, "dc_ridge": 2.0, "dc_window_days": 1100, "dc_xg_weight": 0.5,
     "elo_k": 20, "elo_home_adv": 65, "w_dc": 0.6, "w_elo": 0.4, "min_comp_matches": 300,
+    # shots-on-target xG proxy for matches without real xG (model council 2026-11-25). Adopted because the full
+    # Engine walk-forward (holdout 2025-08-01 -> 2026-11-25, 11 leagues, n = 4,956, 14-day refits, week-clustered
+    # bootstrap) gave dLL -0.00161 [-0.00312, -0.00019] vs 1.0.0. The coefficient is FROZEN: goals per shot on
+    # target over 14,370 matches before 2025-07-01 (before the holdout), so the test period never influenced it.
+    "dc_sot_proxy": True, "sot_xg_coef": 0.3184,
     "description": "Ensemble of time-weighted Dixon-Coles (goals blended with xG where available) and "
                    "goal-difference Elo mapped through an ordered logit. Derived markets come from the DC score "
                    "matrix rescaled to the ensemble 1X2.",
@@ -35,11 +40,28 @@ def load_matches(before: datetime | None = None) -> list[dict]:
         if before is not None:
             q = q.where(Fixture.kickoff_utc < before)
         fixtures = s.scalars(q.order_by(Fixture.kickoff_utc)).all()
-        xg = {fid: (hx, ax) for fid, hx, ax in s.execute(
-            select(MatchStats.fixture_id, MatchStats.home_xg, MatchStats.away_xg).where(MatchStats.home_xg.is_not(None)))}
+        xg, sot = {}, {}
+        for fid, hx, ax, hs, as_ in s.execute(select(MatchStats.fixture_id, MatchStats.home_xg, MatchStats.away_xg,
+                                                      MatchStats.home_sot, MatchStats.away_sot)):
+            if hx is not None and ax is not None:
+                xg[fid] = (hx, ax)
+            if hs is not None and as_ is not None:
+                sot[fid] = (hs, as_)
         return [dict(id=f.id, comp=comps[f.competition_id], home_id=f.home_team_id, away_id=f.away_team_id,
                      hg=f.home_goals, ag=f.away_goals, kickoff=f.kickoff_utc, neutral=f.neutral,
-                     hxg=xg.get(f.id, (None, None))[0], axg=xg.get(f.id, (None, None))[1]) for f in fixtures]
+                     hxg=xg.get(f.id, (None, None))[0], axg=xg.get(f.id, (None, None))[1],
+                     hsot=sot.get(f.id, (None, None))[0], asot=sot.get(f.id, (None, None))[1]) for f in fixtures]
+
+
+def with_sot_proxy(ms: list[dict], coef: float) -> list[dict]:
+    """Real xG first; where it is missing and BOTH teams' shots on target are known, use coef * SOT. Missing SOT
+    stays missing (never 0)."""
+    out = []
+    for m in ms:
+        if m.get("hxg") is None and m.get("hsot") is not None and m.get("asot") is not None:
+            m = {**m, "hxg": coef * m["hsot"], "axg": coef * m["asot"]}
+        out.append(m)
+    return out
 
 
 @dataclass
@@ -86,6 +108,8 @@ class Engine:
             if len(ms) < self.params["min_comp_matches"] or not comp[-1].isdigit():
                 continue
             init = prev.dc.get(comp) if prev else None
+            if self.params.get("dc_sot_proxy"):
+                ms = with_sot_proxy(ms, self.params["sot_xg_coef"])
             self.dc[comp] = dc.fit_competition(ms, ref_date, xi=self.params["dc_xi_per_day"],
                                                ridge=self.params["dc_ridge"], init=init)
         return self
