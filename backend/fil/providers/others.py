@@ -36,6 +36,9 @@ class TheSportsDB(Provider):
     reliability = "medium"
     min_interval_s = 4.0  # free test key is rate-limited (429s observed at 3 s spacing, Nov 2026)
     cache_ttl_s = 3 * 3600
+    # per endpoint (council cycle 2026-11-25 18:51): upcoming fixtures change slowly, so their cache outlives the
+    # 3-hourly cycle (no cold, rate-limited run every time); past results must stay fresh (<= 2.5 h) or results lag ~6 h
+    ENDPOINT_TTL = {"eventsnextleague.php": int(3.5 * 3600), "eventspastleague.php": int(2.5 * 3600)}
 
     def redact(self, url: str) -> str:
         return url.replace(f"/json/{settings.thesportsdb_key}/", "/json/<key>/")
@@ -74,7 +77,7 @@ class TheSportsDB(Provider):
         lid = BY_CODE[comp_code]["sources"]["tsdb"]
         out = []
         for ep in ("eventsnextleague.php", "eventspastleague.php"):
-            events, url, ts = self._events(ep, {"id": lid})
+            events, url, ts = self._events(ep, {"id": lid}, ttl=self.ENDPOINT_TTL.get(ep))
             out += [r for r in (self._to_record(e, comp_code, url, ts) for e in events) if r]
         return out
 

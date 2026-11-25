@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { useApi } from "../hooks";
+import { matchState } from "../lib/matchState";
 
 /** "My view": the whole lab in plain language, for someone who does not want tables and log loss. */
 
@@ -14,14 +15,6 @@ function pick(p: X12, home: string, away: string) {
   const who = k === "home" ? `${home} to win` : k === "away" ? `${away} to win` : "a draw";
   const strength = k === "draw" ? "a very open game" : v >= 0.6 ? "clear favourite" : v >= 0.45 ? "favourite" : "slight edge, could go any way";
   return { key: k, who, pct: v, strength };
-}
-
-/** What to say about a match that has no final score yet, as of NOW (the snapshot may be hours old). */
-export function matchState(kickoffUtc: string, phase?: string, now = Date.now()): "live" | "awaiting" | "upcoming" {
-  const age = now - new Date(kickoffUtc).getTime();
-  if (age < 0) return "upcoming";
-  if (phase === "live" || age < 2.5 * 3.6e6) return phase === "awaiting_result" ? "awaiting" : "live";
-  return "awaiting";
 }
 
 function outcome(score?: string | null) {
@@ -124,7 +117,8 @@ export default function Simple() {
               <div className="simple-result">
                 {res ? <>Final score {i.score} — {res === pk.key ? <b className="pos">the model was right ✓</b> : <b className="neg">the model was wrong ✗</b>}</>
                   : st === "live" ? <span className="warn">Playing now (or just finished)</span>
-                  : st === "awaiting" ? <span className="warn">Finished — waiting for the official result</span> : <span className="muted">Not started yet</span>}
+                  : st === "awaiting" ? <span className="warn">Finished — waiting for the official result</span>
+                  : st === "postponed" ? <span className="muted">Postponed / not played</span> : <span className="muted">Not started yet</span>}
               </div>
             </Link>
           );

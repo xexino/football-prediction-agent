@@ -9,7 +9,7 @@ import numpy as np
 from fastapi import APIRouter, HTTPException
 from sqlalchemy import func, select
 
-from .db import (Competition, DataSource, EBBankrollTransaction, EBBet, EBEvaluation, EBLiveEvent, EBLiveSnapshot,
+from .db import (ModelVersion, Competition, DataSource, EBBankrollTransaction, EBBet, EBEvaluation, EBLiveEvent, EBLiveSnapshot,
                  EBModelVersion, EBPrediction, EBSettlement, EBValidationRun, Fixture, OddsObservation, Prediction, Team,
                  session_scope)
 from .timeutil import iso, rome, utcnow
@@ -82,6 +82,7 @@ def insights(days_back: int = 3, days_forward: int = 7):
             # a match is shown as "live" only while snapshots keep arriving (council LV-2: was 3 h after the last one)
             recent_live = lv is not None and now - lv.created_at < timedelta(minutes=45)
             phase = ("finished" if f.status == "finished" else
+                     "postponed" if f.status in ("postponed", "cancelled", "abandoned") else
                      "live" if recent_live and lv.status in ("live", "halftime") and lv.data_label != "STALE" else
                      "upcoming" if f.kickoff_utc > now else "awaiting_result")
             if p is None and phase != "live" and comps[f.competition_id].code in ("INTFR",):
@@ -127,7 +128,9 @@ def insight_detail(fixture_id: int):
             "history": [{"id": p.id, "revision": p.revision, "created_at": iso(p.created_at), "x12": p.markets["1X2"],
                          "xg": p.markets["EXPECTED_GOALS"], "evaluation": evals.get(p.id)} for p in preds],
             "engine_a": None if a is None else {"x12": a.probs["1X2"], "exp_goals": [a.exp_home_goals, a.exp_away_goals],
-                                                "decision": a.decision, "created_at": iso(a.created_at), "confidence": a.confidence},
+                                                "decision": a.decision, "created_at": iso(a.created_at), "confidence": a.confidence,
+                                                "revision": a.revision,
+                                                "model": (lambda mv: f"{mv.name} {mv.version}" if mv else None)(s.get(ModelVersion, a.model_version_id))},
             "market": mk, "odds": snaps_out,
             "live": [{"at": iso(l.created_at), "provider": l.provider, "label": l.data_label, "status": l.status, "minute": l.minute,
                       "minute_source": l.minute_source, "score": None if l.home_goals is None else f"{l.home_goals}-{l.away_goals}",

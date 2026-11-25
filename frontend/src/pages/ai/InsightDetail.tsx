@@ -62,7 +62,7 @@ export default function InsightDetail() {
             </Card>
             <Card title="Engine A vs Engine B vs market">
               <table><thead><tr><th>Source</th><th className="num">1</th><th className="num">X</th><th className="num">2</th></tr></thead><tbody>
-                {[["Engine B", p.markets["1X2"]], ["Engine A", data.engine_a?.x12], ["Market (no-vig)", data.market]].map(([n, v]: any) => (
+                {[["Engine B", p.markets["1X2"]], [`Engine A${data.engine_a?.model ? ` (${data.engine_a.model.replace("fil-ensemble ", "v")})` : ""}`, data.engine_a?.x12], ["Market (no-vig)", data.market]].map(([n, v]: any) => (
                   <tr key={n}><td>{n}</td>{v ? ["home", "draw", "away"].map((k) => <td key={k} className="num">{pct(v[k], 0)}</td>) : <td colSpan={3} className="muted">not available</td>}</tr>))}
               </tbody></table>
               {rep?.comparison?.engine_a_gap != null && <p className="muted" style={{ fontSize: 11 }}>Largest A/B gap {pct(rep.comparison.engine_a_gap, 0)}; B/market gap {rep.comparison.market_gap != null ? pct(rep.comparison.market_gap, 0) : "—"}.</p>}

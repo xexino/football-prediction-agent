@@ -154,3 +154,8 @@ Earlier items keep their IDs; the council IDs reference them, so no duplicate is
 | 2026-11-25 12:51 cycle: SOT proxy on non-walk-forward leagues | VERIFIED | dLL −0.00151 [−0.00270, −0.00044], n = 5,157 |
 | 2026-11-25 12:51 cycle: My view fixes (match state, Engine B labels, equity) | IMPLEMENTED | Council UI agent |
 | 2026-11-25 12:51 cycle: secondary-vs-secondary fixture merge, TheSportsDB results for lower leagues | DEFERRED | Alias-rewrite risk; ids unverified, 429s |
+| 2026-11-25 18:51 cycle: idempotent, retried incident notifications; catch-up first | IMPLEMENTED | GraphQL errors delayed #21 by ~87 min |
+| 2026-11-25 18:51 cycle: recovery-aware failure streak | IMPLEMENTED | #23 stayed open after a manual recovery run |
+| 2026-11-25 18:51 cycle: per-endpoint TheSportsDB cache | IMPLEMENTED | 347 s cold runs; results must stay ≤ 2.5 h |
+| 2026-11-25 18:51 cycle: My view mid-match state, postponed phase, Engine A version, readable quota | IMPLEMENTED | UI agent; matchState unit tests in CI |
+| Promoted-team prior from second-tier data | REJECTED | Powered (n = 490 / 309) but null: ΔLL +0.00005 [−0.00107, +0.00125] |
