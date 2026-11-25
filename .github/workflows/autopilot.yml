@@ -190,7 +190,8 @@ jobs:
           JOB: ${{ steps.pick.outputs.job }}
         run: |
           set -euo pipefail
-          retry() { for i in 1 2 3; do "$@" && return 0; echo "::warning::attempt $i failed: $*"; sleep $((i * 10)); done; return 1; }
+          # GitHub's upload service returns transient 5xx (3 in a row on 2026-11-25 15:44): 5 attempts, ~5 min of backoff
+          retry() { for i in 1 2 3 4 5; do "$@" && return 0; echo "::warning::attempt $i failed: $*"; [ $i -lt 5 ] && sleep $((i * 30)); done; return 1; }
           python - <<'PY'
           import sqlite3; c = sqlite3.connect("data/fil.db"); c.execute("PRAGMA wal_checkpoint(TRUNCATE)"); c.close()
           PY
