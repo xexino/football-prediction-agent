@@ -1,7 +1,9 @@
 # Independent Autopilot watchdog. It judges the GitHub Actions run history itself, so it notices runs that failed,
 # hung, were cancelled or NEVER STARTED, and raises one de-duplicated GitHub issue (label `autopilot-incident`),
 # which notifies repository watchers. It closes the issue with a recovery note once healthy.
-# Triggers: after every Autopilot run (event-driven, independent of the cron scheduler), hourly, and manually.
+# Triggers: started by the dispatcher every hour (:17) and 10 min after each critical :40 slot (runs dispatched with
+# GITHUB_TOKEN never fire workflow_run), after Autopilot runs started by a person (workflow_run), the cron below
+# (unreliable on GitHub) and manually.
 # Known gap: if GitHub stops ALL scheduled workflows, the hourly trigger stops too — see the runbook, section 17.
 name: Autopilot watchdog
 on:

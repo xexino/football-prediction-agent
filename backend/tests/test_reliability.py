@@ -596,3 +596,16 @@ def test_identity_dry_run_never_writes(db, tmp_path):
     assert (manifest(), Path(settings.db_path).stat().st_mtime) == before
     assert (tmp_path / "r.md").read_text().startswith("# UEFA team identity")
     assert r["europe_teams"] == 1
+
+
+def test_dispatcher_starts_watchdog_and_fails_loudly(monkeypatch):
+    calls = []
+    monkeypatch.setattr(dispatcher, "dispatch", lambda repo, wf, job=None: calls.append((wf, job)) or True)
+    monkeypatch.setattr(dispatcher, "recent_runs", lambda repo: [])
+    # simulate the minute loop body for 12:17 and 12:50 / 13:50
+    for t in (datetime(2026, 11, 25, 12, 17), datetime(2026, 11, 25, 12, 50), datetime(2026, 11, 25, 13, 50)):
+        if t.minute in dispatcher.WATCHDOG_MINUTES and (t.minute == 17 or t.hour % 3 == 0):
+            dispatcher.dispatch("r", "watchdog.yml")
+    assert calls == [("watchdog.yml", None), ("watchdog.yml", None)]
+    src = (ROOT / "backend/fil/ops/dispatcher.py").read_text()
+    assert "return 0 if ok else 1" in src

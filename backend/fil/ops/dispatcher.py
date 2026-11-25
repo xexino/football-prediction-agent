@@ -26,6 +26,9 @@ except ImportError:  # executed as a script
     from fil.ops.schedule import SCHEDULES, matches  # type: ignore
 
 DEDUP_MIN = 15  # a run for the same job started within 15 min before the slot (or after it) covers the slot
+# The watchdog must be started by the dispatcher: runs dispatched with GITHUB_TOKEN never fire `workflow_run`, and
+# GitHub's cron for this repository is unreliable (council cycle 2026-11-25 12:51: no watchdog run after 09:08).
+WATCHDOG_MINUTES = (17, 50)  # hourly, and 10 min after every :40 critical slot
 
 
 def now_utc() -> datetime:
@@ -60,18 +63,19 @@ def recent_runs(repo: str) -> list[dict]:
     return json.loads(gh("api", f"repos/{repo}/actions/workflows/autopilot.yml/runs?per_page=30"))["workflow_runs"]
 
 
-def dispatch(repo: str, workflow: str, job: str | None = None) -> None:
+def dispatch(repo: str, workflow: str, job: str | None = None) -> bool:
     args = ["workflow", "run", workflow, "--repo", repo, "--ref", "main"]
     if job:
         args += ["-f", f"job={job}"]
     for attempt in range(3):
         try:
             gh(*args)
-            return
+            return True
         except Exception as exc:  # transient API failure: bounded retry, then report
             print(f"::warning::dispatch {workflow} {job or ''} failed (attempt {attempt + 1}): {exc}", flush=True)
             time.sleep(10 * (attempt + 1))
     print(f"::error::could not dispatch {workflow} {job or ''}", flush=True)
+    return False
 
 
 def main(argv=None) -> int:
@@ -85,10 +89,14 @@ def main(argv=None) -> int:
         cur = now_utc()
         if cur - start >= timedelta(minutes=a.max_minutes):
             print("handing over to a new dispatcher run", flush=True)
-            dispatch(a.repo, "dispatcher.yml")
-            return 0
+            ok = dispatch(a.repo, "dispatcher.yml")
+            # a broken hand-over must be loud: the watchdog (started below every hour) restarts the chain, and a
+            # failed dispatcher run is visible in Actions
+            return 0 if ok else 1
         m = last + timedelta(minutes=1)
         while m <= cur:  # also processes minutes missed while a dispatch was slow
+            if m.minute in WATCHDOG_MINUTES and (m.minute == 17 or m.hour % 3 == 0):
+                dispatch(a.repo, "watchdog.yml")
             for cron, job in due(m):
                 try:
                     runs = recent_runs(a.repo)
