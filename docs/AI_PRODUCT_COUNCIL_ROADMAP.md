@@ -149,3 +149,8 @@ Earlier items keep their IDs; the council IDs reference them, so no duplicate is
 | SOT-xG proxy in Dixon-Coles (model 1.1.0) | IMPLEMENTED | Full Engine walk-forward dLL −0.00161 [−0.00312, −0.00019], n = 4,956, frozen coefficient — `docs/council/cycles/2026-11-25-1000-walkforward.md` |
 | Corrected market gap published (clean prices) | IMPLEMENTED | A 1.1.0 is +0.0155 [+0.0117, +0.0192] worse than the clean market (was reported as +0.0126) |
 | UEFA identity: reversible alias map + dry run | IN PROGRESS | `docs/data/UEFA_IDENTITY_DRYRUN.md`: 56 merges proposed; Athletic/Atleti alias, Como duplicate and Andorra/Monaco ids to fix first; apply only after a domestic re-backtest |
+| 2026-11-25 12:51 cycle: watchdog started by the dispatcher | IMPLEMENTED (PR #19) | `GITHUB_TOKEN` runs never fire workflow_run; GitHub cron not firing |
+| 2026-11-25 12:51 cycle: guessed "postponed" status | REJECTED | Would void bets; health-only "unresolved (round complete)" label instead |
+| 2026-11-25 12:51 cycle: SOT proxy on non-walk-forward leagues | VERIFIED | dLL −0.00151 [−0.00270, −0.00044], n = 5,157 |
+| 2026-11-25 12:51 cycle: My view fixes (match state, Engine B labels, equity) | IMPLEMENTED | Council UI agent |
+| 2026-11-25 12:51 cycle: secondary-vs-secondary fixture merge, TheSportsDB results for lower leagues | DEFERRED | Alias-rewrite risk; ids unverified, 429s |

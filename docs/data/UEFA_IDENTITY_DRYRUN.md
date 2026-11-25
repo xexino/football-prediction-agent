@@ -181,3 +181,53 @@ none
 | 874 | Zirə | 1 |
 | 892 | Ħamrun Spartans | 1 |
 | 865 | Žilina | 2 |
+
+## Ambiguous aliases (one spelling -> several teams; never used to resolve, teamnames.py) (45)
+
+| alias | source | team_ids |
+|---|---|---|
+| ajax | football_data_org | [346, 1313] |
+| arsenal | football_data_org | [3, 1258] |
+| aston villa | football_data_org | [14, 1251] |
+| atalanta | football_data_org | [137, 1306] |
+| athletic | football_data_org | [185, 1272] |
+| bologna | football_data_org | [144, 1299] |
+| braga | football_data_org | [315, 1293] |
+| brest | football_data_org | [276, 1304] |
+| chelsea | football_data_org | [17, 1314] |
+| como | thesportsdb | [148, 1317] |
+| dortmund | football_data_org | [240, 1259] |
+| feyenoord | football_data_org | [354, 1264] |
+| frankfurt | football_data_org | [244, 1315] |
+| inter | football_data_org | [132, 1275] |
+| juventus | football_data_org | [141, 1297] |
+| lazio | football_data_org | [139, 1286] |
+| lens | football_data_org | [277, 1261] |
+| leverkusen | football_data_org | [234, 1302] |
+| lille | football_data_org | [271, 1281] |
+| liverpool | football_data_org | [18, 1274] |
+| man city | football_data_org | [2, 1262] |
+| man utd | football_data_org | [19, 1271] |
+| marseille | football_data_org | [272, 1310] |
+| milan | football_data_org | [145, 1283] |
+| monaco | football_data_org | [279, 1303] |
+| napoli | football_data_org | [129, 1263] |
+| newcastle | football_data_org | [13, 1284] |
+| paris | thesportsdb | [274, 291] |
+| paris sg | football_data_org | [274, 1279] |
+| porto | football_data_org | [330, 1265] |
+| psv | football_data_org | [342, 1255] |
+| rb leipzig | football_data_org | [235, 1260] |
+| real betis | football_data_org | [190, 1253] |
+| real madrid | football_data_org | [186, 1254] |
+| real sociedad | football_data_org | [181, 1294] |
+| roma | football_data_org | [134, 1280] |
+| sevilla | football_data_org | [179, 1292] |
+| sl benfica | football_data_org | [332, 1295] |
+| sp cp | football_data_org | [321, 1270] |
+| stuttgart | football_data_org | [236, 1276] |
+| tottenham | football_data_org | [16, 1309] |
+| union berlin | football_data_org | [242, 1290] |
+| villarreal | football_data_org | [189, 1267] |
+| villarreal | thesportsdb | [189, 1267] |
+| vitoria | football_data_org | [326, 685] |

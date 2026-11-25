@@ -16,6 +16,14 @@ function pick(p: X12, home: string, away: string) {
   return { key: k, who, pct: v, strength };
 }
 
+/** What to say about a match that has no final score yet, as of NOW (the snapshot may be hours old). */
+export function matchState(kickoffUtc: string, phase?: string, now = Date.now()): "live" | "awaiting" | "upcoming" {
+  const age = now - new Date(kickoffUtc).getTime();
+  if (age < 0) return "upcoming";
+  if (phase === "live" || age < 2.5 * 3.6e6) return phase === "awaiting_result" ? "awaiting" : "live";
+  return "awaiting";
+}
+
 function outcome(score?: string | null) {
   if (!score) return null;
   const [h, a] = score.split("-").map(Number);
@@ -54,12 +62,16 @@ export default function Simple() {
     .sort((a: any, b: any) => a.kickoff_utc.localeCompare(b.kickoff_utc));
 
   // track record on finished matches the model predicted before kickoff (original prediction)
-  const done = (cmp?.rows || []).filter((r: any) => r.result && (r.engine_a || r.engine_b));
-  const ours = done.filter((r: any) => { const p = r.engine_a || r.engine_b; return pick(p, "", "").key === r.result; }).length;
+  // Engine A only (the main model); matches only Engine B covers (e.g. Champions League) are counted separately
+  const doneAll = (cmp?.rows || []).filter((r: any) => r.result && (r.engine_a || r.engine_b));
+  const done = doneAll.filter((r: any) => r.engine_a);
+  const bOnly = doneAll.filter((r: any) => !r.engine_a);
+  const bOnlyRight = bOnly.filter((r: any) => pick(r.engine_b, "", "").key === r.result).length;
+  const ours = done.filter((r: any) => pick(r.engine_a, "", "").key === r.result).length;
   const mk = done.filter((r: any) => r.market);
   const mkRight = mk.filter((r: any) => pick(r.market, "", "").key === r.result).length;
-  const oursOnMk = mk.filter((r: any) => { const p = r.engine_a || r.engine_b; return pick(p, "", "").key === r.result; }).length;
-  const recent = done.slice(0, 12);
+  const oursOnMk = mk.filter((r: any) => pick(r.engine_a, "", "").key === r.result).length;
+  const recent = doneAll.slice(0, 12);
 
   return (
     <>
@@ -73,15 +85,16 @@ export default function Simple() {
           <div className="simple-v">{done.length ? `${Math.round((ours / done.length) * 100)}% right` : "too early"}</div>
           <div className="simple-t">
             {done.length ? <>On the last {done.length} finished matches, the result the model thought most likely happened {ours} times.
-              {mk.length ? <> On the {mk.length} of them with bookmaker prices: model {oursOnMk}/{mk.length}, bookmakers {mkRight}/{mk.length}.</> : null}
-              {" "}Guessing blindly is right about 1 time in 3. Tested on thousands of past matches, the bookmakers' prices are still slightly more accurate than our model, so treat their numbers as the benchmark and ours as a second opinion.</>
+              {mk.length ? <> On the {mk.length} of them with betting-market prices: model {oursOnMk}/{mk.length}, market {mkRight}/{mk.length}.</> : null}
+              {bOnly.length ? <> Matches only our second engine (Engine B) covers, such as the Champions League: {bOnlyRight}/{bOnly.length}.</> : null}
+              {" "}Guessing blindly is right about 1 time in 3. A few dozen games prove little: over thousands of past matches the betting market is still slightly more accurate than our model, so treat the market as the benchmark and ours as a second opinion.</>
               : "Results are still coming in; this fills up as matches are played."}
           </div>
         </div>
         <div className="simple-card">
           <div className="simple-k">Virtual money</div>
-          <div className="simple-v">{ov ? `€${ov.bankroll.current_bankroll.toFixed(2)}` : "…"}</div>
-          <div className="simple-t">Started with €100. {ov ? `${ov.bankroll.pending} bet${ov.bankroll.pending === 1 ? "" : "s"} waiting for a result.` : ""} The model only "bets" €1 when the price is clearly too generous; most days the right answer is no bet.</div>
+          <div className="simple-v">{ov ? `€${(ov.bankroll.equity ?? ov.bankroll.current_bankroll).toFixed(2)}` : "…"}</div>
+          <div className="simple-t">Started with €100. {ov ? `€${ov.bankroll.current_bankroll.toFixed(2)} free + €${(ov.bankroll.pending_exposure ?? 0).toFixed(2)} on ${ov.bankroll.pending} bet${ov.bankroll.pending === 1 ? "" : "s"} waiting for a result.` : ""} The model only "bets" €1 when the price is clearly too generous; most days the right answer is no bet.</div>
         </div>
       </div>
 
@@ -94,12 +107,12 @@ export default function Simple() {
           const res = outcome(i.score);
           const top = i.engine_b ? Object.keys(i.engine_b.top_scores)[0] : null;
           const goals = i.engine_b ? (i.engine_b.over25 >= 0.5 ? `3 or more goals more likely (${P(i.engine_b.over25)})` : `2 goals or fewer more likely (${P(1 - i.engine_b.over25)})`) : null;
-          const started = Date.now() > new Date(i.kickoff_utc).getTime();
+          const st = matchState(i.kickoff_utc, i.phase);
           return (
             <Link key={i.id} to={`/insights/${i.id}`} className="simple-match">
               <div className="simple-when">{rome(i.kickoff_utc)} · {i.competition_name}</div>
               <div className="simple-teams">{i.home} <span>vs</span> {i.away}</div>
-              <div className="simple-pick">Model says: <b>{pk.who}</b> ({P(pk.pct)}) — {pk.strength}</div>
+              <div className="simple-pick">{i.engine_a ? "Model says" : <>Engine B says <span className="pill" title="Our main model does not cover this competition">B</span></>}: <b>{pk.who}</b> ({P(pk.pct)}) — {pk.strength}</div>
               <div className="simple-bar">
                 <span style={{ width: P(p.home), background: "#22c55e" }} title={`${i.home} ${P(p.home)}`} />
                 <span style={{ width: P(p.draw), background: "#64748b" }} title={`draw ${P(p.draw)}`} />
@@ -110,7 +123,8 @@ export default function Simple() {
                 <div className="simple-small">Bookmakers: <b>{mk.who}</b> ({P(mk.pct)}) — {i.home} {P(i.market.home)} · draw {P(i.market.draw)} · {i.away} {P(i.market.away)}{mk.key === pk.key ? " · model and bookmakers agree" : " · model and bookmakers disagree"}</div>); })()}
               <div className="simple-result">
                 {res ? <>Final score {i.score} — {res === pk.key ? <b className="pos">the model was right ✓</b> : <b className="neg">the model was wrong ✗</b>}</>
-                  : started ? <span className="warn">Playing or just finished — result coming soon</span> : <span className="muted">Not started yet</span>}
+                  : st === "live" ? <span className="warn">Playing now (or just finished)</span>
+                  : st === "awaiting" ? <span className="warn">Finished — waiting for the official result</span> : <span className="muted">Not started yet</span>}
               </div>
             </Link>
           );
@@ -120,13 +134,13 @@ export default function Simple() {
       <h2 className="simple-h">Recent results</h2>
       <div className="simple-list">
         {recent.map((r: any) => {
-          const p = r.engine_a || r.engine_b;
+          const p = r.engine_a || r.engine_b;  // B-only rows are marked below
           const pk = pick(p, r.home, r.away);
           return (
             <Link key={r.id} to={`/insights/${r.id}`} className="simple-match simple-row">
               <span className="simple-when">{rome(r.kickoff_utc)}</span>
               <span className="simple-teams-s">{r.home} {r.score} {r.away}</span>
-              <span>model: {pk.who} ({P(pk.pct)})</span>
+              <span>{r.engine_a ? "model" : "Engine B"}: {pk.who} ({P(pk.pct)})</span>
               <b className={pk.key === r.result ? "pos" : "neg"}>{pk.key === r.result ? "✓ right" : "✗ wrong"}</b>
             </Link>);
         })}
