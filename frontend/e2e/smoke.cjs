@@ -3,7 +3,7 @@
 const { chromium } = require("playwright");
 const base = process.argv[2] || "http://localhost:8000";
 const shots = process.argv[3];
-const pages = [["", "Overview"], ["upcoming", "Upcoming Matches"], ["predictions", "Predictions"], ["slip", "Virtual Bet Slip"],
+const pages = [["", "My view"], ["overview", "Overview"], ["upcoming", "Upcoming Matches"], ["predictions", "Predictions"], ["slip", "Virtual Bet Slip"],
   ["history", "Results & History"], ["analytics", "Analytics"], ["sources", "Data Sources & Coverage"], ["system", "System Health"],
   ["insights", "AI Match Insights"], ["compare", "Engine A vs Engine B"], ["engine-b", "Engine B — track record"], ["coverage", "Global coverage & live data"]];
 (async () => {
