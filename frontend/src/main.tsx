@@ -18,6 +18,7 @@ import InsightDetail from "./pages/ai/InsightDetail";
 import Compare from "./pages/ai/Compare";
 import EngineB from "./pages/ai/EngineB";
 import CoveragePage from "./pages/ai/Coverage";
+import { healthCauses } from "./lib/honesty";
 
 const NAV = [
   ["/", "☺", "My view"], ["/overview", "◎", "Overview"], ["/upcoming", "▤", "Upcoming"], ["/predictions", "∑", "Predictions"],
@@ -37,8 +38,8 @@ function FreshnessBanner({ hd }: { hd: any }) {
   return (
     <div className={`banner ${bad || stale ? "banner-warn" : ""}`}>
       {stale && <b>STALE SNAPSHOT — </b>}
-      {stale ? `data last refreshed ${ageH.toFixed(0)}h ago (expected every 3h). Figures below may be out of date. ` : ""}
-      {bad && <>System health: <b>{hd.overall}</b>. See <a href="#/system">System Health</a>.</>}
+      {stale ? `data last refreshed ${ageH.toFixed(0)}h ago (full runs every 3 h, live checks every 20 min 11–23 UTC). Figures below may be out of date. ` : ""}
+      {bad && <>System health: <b>{hd.overall}</b>{healthCauses(hd.components) ? <> — {healthCauses(hd.components)}</> : null}. See <a href="#/system">System Health</a>.</>}
     </div>
   );
 }
@@ -103,7 +104,7 @@ function Shell() {
         <div className="sim-banner">
           <span className={`dot ${h?.status === "ok" ? "ok" : h ? "err" : ""}`} /> backend {h?.status || "…"}<br />
           <span className={`dot ${h?.scheduler_running ? "ok" : "warn"}`} /> scheduler {h ? (h.scheduler_running ? "running" : "off / static snapshot") : "…"}<br />
-          <span className={`dot ${STATE_CLASS[hd?.overall] ?? ""}`} /> health {hd?.overall ?? "…"}<br />
+          <span className={`dot ${STATE_CLASS[hd?.overall] ?? ""}`} /> <span title={healthCauses(hd?.components)}>health {hd?.overall ?? "…"}{healthCauses(hd?.components) ? ` — ${healthCauses(hd?.components)}` : ""}</span><br />
           <span className="muted">snapshot published {hd ? ago(hd.computed_at) : "—"}</span>
         </div>
       </aside>

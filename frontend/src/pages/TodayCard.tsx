@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useApi } from "../hooks";
 import { Card, pct, num, statusNow } from "../ui";
+import { keepOnToday } from "../lib/honesty";
 
 const romeDay = (d: Date) => d.toLocaleDateString("en-CA", { timeZone: "Europe/Rome" });
 
@@ -11,7 +12,7 @@ export default function TodayCard() {
   if (!data) return null;
   const today = romeDay(new Date());
   const items = data.items
-    .filter((i: any) => romeDay(new Date(i.kickoff_utc)) === today && (i.engine_a || i.engine_b))
+    .filter((i: any) => keepOnToday(romeDay(new Date(i.kickoff_utc)) === today, i.kickoff_utc, i.score, i.phase || i.status) && (i.engine_a || i.engine_b))
     .sort((a: any, b: any) => a.kickoff_utc.localeCompare(b.kickoff_utc));
   return (
     <Card title={`Today's matches (${items.length} predicted)`} right={<Link to="/insights">all matches →</Link>}>

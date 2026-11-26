@@ -23,3 +23,21 @@ export const MIN_SAMPLE = 20;
 export const smallSample = (settled: number | null | undefined) => (settled ?? 0) < MIN_SAMPLE;
 export const sampleNote = (settled: number | null | undefined) =>
   `${settled ?? 0} settled bet${settled === 1 ? "" : "s"}: not meaningful yet (needs ${MIN_SAMPLE}+)`;
+
+/** Keep a started match without a score on "today" lists for 12 h, so it does not vanish at midnight Rome while it
+ *  is still being played or awaiting its result (council cycle 2026-11-26 18:50: an open-bet match disappeared). */
+export function keepOnToday(isToday: boolean, kickoffUtc: string, score: string | null | undefined,
+                            status?: string | null, now: number = Date.now()): boolean {
+  if (isToday) return true;
+  if (status === "postponed" || status === "cancelled" || status === "abandoned") return false;
+  const age = now - new Date(kickoffUtc).getTime();
+  return !score && age > 0 && age < 12 * 3.6e6;
+}
+
+/** "results (18 overdue), live" — the components that make overall health not HEALTHY. */
+export function healthCauses(components: Record<string, any> | null | undefined): string {
+  return Object.entries(components || {})
+    .filter(([, c]) => c && c.state && c.state !== "HEALTHY" && c.state !== "UNKNOWN")
+    .map(([k, c]) => (k === "results" && c.overdue ? `results (${c.overdue} overdue)` : k))
+    .join(", ");
+}
