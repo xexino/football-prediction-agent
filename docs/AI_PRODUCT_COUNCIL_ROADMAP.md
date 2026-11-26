@@ -185,3 +185,4 @@ Earlier items keep their IDs; the council IDs reference them, so no duplicate is
 | 2026-11-26 12:50 cycle claim "0 rate-limit refusals after the fix" | CORRECTED | That run had a warm cache; 8 × 429 followed |
 | 2026-11-26 18:50 cycle: Overview equity headline, open matches kept on today lists 12 h, health banner names its causes, "at placement" label | IMPLEMENTED | UI agent, clock-shifted checks |
 | UEL/UECL coverage 6 of 36 (TheSportsDB cap) | RECORDED | Fixtures health to say so next cycle |
+| ECC skills (owner request 2026-11-26): 17 adapted `ecc-*` project skills + `fil-guardrails` + `fil-council-cycle` + CLAUDE.md | IMPLEMENTED | Curated for this stack; MIT; no executable files; project rules take precedence |
