@@ -1217,3 +1217,39 @@ def test_dispatcher_backfill_skips_when_runs_cannot_be_read(monkeypatch):
     monkeypatch.setattr(dispatcher, "recent_runs", boom)
     dispatcher.main(["--repo", "r", "--max-minutes", "2"])
     assert ("autopilot.yml", "live") not in calls   # 13:07 was backfilled: not guessed when GitHub can't be read
+
+
+def test_second_429_fails_fast_for_uncached_urls(monkeypatch, tmp_path):
+    from fil.providers.base import ProviderError
+    from fil.providers.others import TheSportsDB
+
+    sleeps, clock, sent = _fake_http(monkeypatch, [429, 429, 429, 429], {"Retry-After": "120"})
+    t = TheSportsDB(); t.cache_dir = tmp_path
+    try:
+        t.get("https://x/u1", ttl=0)                       # 429 → one lock-out wait → 429 again → give up
+    except ProviderError:
+        pass
+    n, waited = len(sent), sum(sleeps)
+    assert n == 2 and 119 <= waited <= 140                # at most ONE lock-out wait per process
+    for u in ("https://x/u2", "https://x/u3"):
+        try:
+            TheSportsDB().get(u, ttl=0)
+        except ProviderError as e:
+            assert "429" in str(e) and "skipped" in str(e)  # "429" stops the overdue step too
+    assert len(sent) == n and sum(sleeps) == waited       # no further requests, no further waiting
+
+
+def test_overdue_fallback_does_not_count_skipped_requests_as_failures(db, monkeypatch):
+    from fil import collect
+    from fil.providers.base import Provider
+    from fil.timeutil import utcnow
+
+    _seed_overdue(utcnow().replace(minute=0, second=0, microsecond=0) - timedelta(hours=6))
+    Provider._RATE["thesportsdb"] = {"down": 10 ** 12}       # provider marked down by an earlier step
+    tsdb = collect.provider("thesportsdb")
+    marked = []
+    monkeypatch.setattr(tsdb, "mark_error", lambda *a, **k: marked.append(a))
+    monkeypatch.setattr(collect, "provider", lambda k: tsdb)
+    out = collect.collect_overdue_results()
+    assert out["asked"] == 0 and not out["errors"] and len(out.get("skipped", [])) == 1   # stopped at once
+    assert marked == []                                    # never feeds the 6 h circuit breaker

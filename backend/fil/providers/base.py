@@ -69,6 +69,14 @@ class Provider:
         Provider._RATE.setdefault(self.key, {})["last"] = v
 
     @property
+    def _n429(self) -> int:
+        return Provider._RATE.setdefault(self.key, {}).get("n429", 0)
+
+    @_n429.setter
+    def _n429(self, v: int) -> None:
+        Provider._RATE.setdefault(self.key, {})["n429"] = v
+
+    @property
     def _down_until(self) -> float:
         return Provider._RATE.setdefault(self.key, {}).get("down", 0.0)
 
@@ -196,10 +204,14 @@ class Provider:
         # 16 x HTTP 522 retried URL after URL (6.5 min) and a fixed ~120 s 429 lock-out probed three times.
         # While blocked, an URL we already have is answered from the (stale, reported) cache at once.
         blocked = max(self._down_until, self._cooldown_until) - time.time()
-        if blocked > 0 and cpath.exists():
+        if blocked > 30 and cpath.exists():  # a short back-off is worth waiting; a lock-out or outage is not
             return self._stale(cpath, req, url, "provider down or rate-limited — request skipped")
         if self._down_until > time.time():
             raise ProviderError(f"{self.key} marked down after repeated server/network errors; request skipped")
+        if self._cooldown_until > time.time() and self._n429 >= 2:
+            # a lasting limit (quota, not a 120 s lock-out): wait out at most one lock-out per process, so a run can
+            # never approach the job timeout (30 URLs x 3 x 130 s); "429" in the text stops the overdue step too
+            raise ProviderError(f"rate limited (429): {self.key} still locked out; request skipped")
         last_exc: Exception | None = None
         transient = False  # last failure was a 5xx / network error (not a 429)
         for attempt in range(retries):
@@ -218,14 +230,17 @@ class Provider:
                     except ValueError:  # an HTTP-date Retry-After: use our own back-off
                         retry_after = 0.0
                     # the lock-out is ~120 s (Retry-After counts down from it); never probe it repeatedly
-                    self._cooldown_until = time.time() + min(max(retry_after, 2 ** attempt * 5), RATE_LIMIT_MAX_PAUSE_S)
+                    pause = min(max(retry_after, 2 ** attempt * 5), RATE_LIMIT_MAX_PAUSE_S)
+                    self._cooldown_until = time.time() + pause
+                    self._n429 += 1
                     last_exc, transient = ProviderError(f"rate limited (429) at {self.redact(str(r.url))}"), False
-                    if cpath.exists():
-                        break  # an old answer now beats a 2-minute wait
+                    if (cpath.exists() and pause > 30) or self._n429 >= 2:
+                        break  # an old answer beats a 2-minute wait; and never a second lock-out wait
                     continue  # the next attempt waits out the cool-down (loop top)
                 if r.status_code in (401, 403):
                     raise ProviderError(f"HTTP {r.status_code}: access denied for {self.redact(str(r.url))}")
                 if r.status_code >= 500:
+                    self._last_exc = None  # not a rate limit: do not label later stale answers "rate_limited"
                     last_exc, transient = ProviderError(f"HTTP {r.status_code} at {self.redact(str(r.url))}"), True
                     if attempt < retries - 1:
                         time.sleep(2 ** attempt)

@@ -90,6 +90,7 @@ def collect_fixtures() -> dict:
 
     tsdb = provider("thesportsdb")
     n, errs = 0, []
+    skipped_calls = False
     skipped = _skip_if_open(tsdb)
     for c in ([] if skipped else COMPETITIONS):
         if "tsdb" not in c["sources"]:
@@ -99,6 +100,9 @@ def collect_fixtures() -> dict:
             n += len(recs)
             ingest_records(recs, tsdb.key)
         except ProviderError as e:
+            if "request skipped" in str(e):  # provider marked down / still locked out: not a new failure,
+                skipped_calls = True          # never counted towards the 6 h circuit breaker
+                break
             errs.append(f"{c['code']}: {e}")
     stale = getattr(tsdb, "stale_served", 0)  # read before mark_success resets it
     if skipped:
@@ -107,7 +111,7 @@ def collect_fixtures() -> dict:
         tsdb.mark_error("; ".join(errs)[:900], requests=len(errs))
     else:
         tsdb.mark_success(records=n, requests=2 * sum(1 for c in COMPETITIONS if "tsdb" in c["sources"]))
-    out.setdefault("thesportsdb", {"records": n, "errors": errs, "stale_cache": stale})
+    out.setdefault("thesportsdb", {"records": n, "errors": errs, "stale_cache": stale, "skipped_calls": skipped_calls})
     from .ingest import merge_duplicates
 
     out["merged_duplicates"] = merge_duplicates()
@@ -414,8 +418,9 @@ def collect_overdue_results(now: datetime | None = None) -> dict:
         try:
             events, url, ts = tsdb._events(endpoint, params, ttl=ttl)
         except ProviderError as e:
-            out["errors"].append(f"{endpoint} {params}: {e}")
-            return None if "429" in str(e) else ([], None)
+            skipped_req = "marked down" in str(e) or "request skipped" in str(e)
+            out["skipped" if skipped_req else "errors"] = out.get("skipped" if skipped_req else "errors", []) + [f"{endpoint} {params}: {e}"]
+            return None if ("429" in str(e) or skipped_req) else ([], None)
         if getattr(tsdb, "last_from_cache", False):
             out["cached"] = out.get("cached", 0) + 1  # a fresh cached answer costs no request
         else:

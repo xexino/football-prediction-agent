@@ -26,8 +26,10 @@ export const sampleNote = (settled: number | null | undefined) =>
 
 /** Keep a started match without a score on "today" lists for 12 h, so it does not vanish at midnight Rome while it
  *  is still being played or awaiting its result (council cycle 2026-11-26 18:50: an open-bet match disappeared). */
-export function keepOnToday(isToday: boolean, kickoffUtc: string, score: string | null | undefined, now: number = Date.now()): boolean {
+export function keepOnToday(isToday: boolean, kickoffUtc: string, score: string | null | undefined,
+                            status?: string | null, now: number = Date.now()): boolean {
   if (isToday) return true;
+  if (status === "postponed" || status === "cancelled" || status === "abandoned") return false;
   const age = now - new Date(kickoffUtc).getTime();
   return !score && age > 0 && age < 12 * 3.6e6;
 }

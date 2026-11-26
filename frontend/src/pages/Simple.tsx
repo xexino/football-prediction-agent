@@ -80,7 +80,7 @@ export default function Simple() {
   const { data: ov } = useApi<any>("overview", 300000);
 
   const today = romeDay(new Date());
-  const todays = (ins?.items || []).filter((i: any) => keepOnToday(romeDay(new Date(i.kickoff_utc)) === today, i.kickoff_utc, i.score) && (i.engine_a || i.engine_b))
+  const todays = (ins?.items || []).filter((i: any) => keepOnToday(romeDay(new Date(i.kickoff_utc)) === today, i.kickoff_utc, i.score, i.phase || i.status) && (i.engine_a || i.engine_b))
     .sort((a: any, b: any) => a.kickoff_utc.localeCompare(b.kickoff_utc));
 
   // track record on finished matches the model predicted before kickoff (original prediction)

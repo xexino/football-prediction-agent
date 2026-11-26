@@ -181,3 +181,7 @@ Earlier items keep their IDs; the council IDs reference them, so no duplicate is
 | Overdue fallback v1+v2 accuracy | VERIFIED | 20/20 identical to football-data.co.uk (published 12:41), 0 conflicts |
 | Temperature recalibration of A's 1X2 | REJECTED | ΔLL −0.0018 [−0.0037, +0.0001] |
 | Engine B "cross-league rating" label for UEFA matches; UEL/UECL coverage in fixtures health | DEFERRED | Next cycle |
+| 2026-11-26 18:50 cycle: provider down-marking (5 min), Retry-After lock-out respected (≤130 s, once per process), stale-first, 6.5 s TheSportsDB spacing | IMPLEMENTED | 15:42 fixtures took 739 s (outage + two 120 s lock-outs); the 12:50 change had saved nothing |
+| 2026-11-26 12:50 cycle claim "0 rate-limit refusals after the fix" | CORRECTED | That run had a warm cache; 8 × 429 followed |
+| 2026-11-26 18:50 cycle: Overview equity headline, open matches kept on today lists 12 h, health banner names its causes, "at placement" label | IMPLEMENTED | UI agent, clock-shifted checks |
+| UEL/UECL coverage 6 of 36 (TheSportsDB cap) | RECORDED | Fixtures health to say so next cycle |
