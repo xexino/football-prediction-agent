@@ -10,6 +10,7 @@ Design principles
 from __future__ import annotations
 
 import json
+import threading
 from contextlib import contextmanager
 from datetime import datetime
 from typing import Iterator
@@ -662,11 +663,24 @@ def init_db(db_path=None):
     return engine
 
 
+# log() called while a session_scope is open used to open a SECOND session. If the outer one already held SQLite's
+# write lock, the inner write waited the full 30 s timeout and the error was swallowed: the line was lost and the
+# job stalled (council cycle 2026-11-26 12:50: 30 s per overdue result, 0 'collect' log rows ever). Log lines
+# written inside an open scope are now buffered and persisted right after the outermost scope closes (with their
+# event time). Known limit: buffered lines are lost if the process dies while the scope is open.
+_scope_state = threading.local()
+
+
+def _depth() -> int:
+    return getattr(_scope_state, "depth", 0)
+
+
 @contextmanager
 def session_scope() -> Iterator[Session]:
     if _Session is None:
         init_db()
     s = _Session()
+    _scope_state.depth = _depth() + 1
     try:
         yield s
         s.commit()
@@ -675,6 +689,22 @@ def session_scope() -> Iterator[Session]:
         raise
     finally:
         s.close()
+        _scope_state.depth = _depth() - 1
+        if _scope_state.depth == 0 and getattr(_scope_state, "pending", None):
+            _flush_logs()
+
+
+def _flush_logs() -> None:
+    pending, _scope_state.pending = _scope_state.pending, []
+    try:
+        s = _Session()
+        try:
+            s.add_all([SystemLog(level=lv, component=c, message=m, ts=ts) for lv, c, m, ts in pending])
+            s.commit()
+        finally:
+            s.close()
+    except Exception:  # logging must never break the pipeline
+        pass
 
 
 def log(level: str, component: str, message: str) -> None:
@@ -685,6 +715,11 @@ def log(level: str, component: str, message: str) -> None:
 
     message = redact(message)
     logging.getLogger(f"fil.{component}").log(getattr(logging, level.upper(), 20), message)
+    if _depth() > 0:  # inside an open scope: persist after it closes (never wait on our own write lock)
+        if not hasattr(_scope_state, "pending") or _scope_state.pending is None:
+            _scope_state.pending = []
+        _scope_state.pending.append((level.upper(), component, message[:4000], utcnow()))  # event time, not flush time
+        return
     try:
         with session_scope() as s:
             s.add(SystemLog(level=level.upper(), component=component, message=message[:4000]))

@@ -34,7 +34,9 @@ class TheSportsDB(Provider):
     base_url = "https://www.thesportsdb.com/api/v1/json"
     license_note = "Free public test key '123' — heavily limited (≈1-15 events per request). Community-maintained data."
     reliability = "medium"
-    min_interval_s = 4.0  # free test key is rate-limited (429s observed at 3 s spacing, Nov 2026)
+    # free test key: ~13-14 requests/minute before a 429 (council cycle 2026-11-26 12:50: first 429 after 13-14 calls
+    # at 4 s, then 2 min of retries every run); 5 s = 12/minute stays under it
+    min_interval_s = 5.0
     cache_ttl_s = 3 * 3600
     # per endpoint (council cycle 2026-11-25 18:51): upcoming fixtures change slowly, so their cache outlives the
     # 3-hourly cycle (no cold, rate-limited run every time); past results must stay fresh (<= 2.5 h) or results lag ~6 h

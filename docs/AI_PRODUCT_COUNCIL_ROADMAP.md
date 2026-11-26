@@ -174,3 +174,10 @@ Earlier items keep their IDs; the council IDs reference them, so no duplicate is
 | Team-news (lineups/absences) shadow feature | PROPOSED | 40 % of A's gap to the market is in the top-10 % disagreements; needs a data key (owner decision) |
 | TheSportsDB 429 budget; gate for very late live crons; probably-postponed TheSportsDB-only fixtures in health | DEFERRED | Next cycle |
 | 2026-11-26 06:50 cycle: TheSportsDB `searchevents.php` answers under "event" (not "events"), so every per-fixture search looked empty | IMPLEMENTED | Found while verifying the live run; parser test added; dry run then resolves 8 of 9 |
+| 2026-11-26 12:50 cycle: log() inside an open write session (30 s wait, line lost) | IMPLEMENTED | Buffered and flushed after the outermost scope, with event time |
+| 2026-11-26 12:50 cycle: TheSportsDB 429 cost (shared cool-down, no final-attempt sleep, 5 s spacing) | IMPLEMENTED | ~120 s lost per run; verify next cycle |
+| 2026-11-26 12:50 cycle: dispatcher handover look-back (10 min, slots only) | IMPLEMENTED | Handover minute moves onto live slots daily |
+| 2026-11-26 12:50 cycle: /upcoming on the shared match-state rule; catch-all route | IMPLEMENTED | UI agent clock-shift check |
+| Overdue fallback v1+v2 accuracy | VERIFIED | 20/20 identical to football-data.co.uk (published 12:41), 0 conflicts |
+| Temperature recalibration of A's 1X2 | REJECTED | ΔLL −0.0018 [−0.0037, +0.0001] |
+| Engine B "cross-league rating" label for UEFA matches; UEL/UECL coverage in fixtures health | DEFERRED | Next cycle |
