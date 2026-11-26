@@ -1253,3 +1253,20 @@ def test_overdue_fallback_does_not_count_skipped_requests_as_failures(db, monkey
     out = collect.collect_overdue_results()
     assert out["asked"] == 0 and not out["errors"] and len(out.get("skipped", [])) == 1   # stopped at once
     assert marked == []                                    # never feeds the 6 h circuit breaker
+
+
+def test_project_skills_are_valid_and_contain_nothing_executable():
+    skills = ROOT / ".claude" / "skills"
+    dirs = sorted(p for p in skills.iterdir() if p.is_dir())
+    names = {d.name for d in dirs}
+    assert {"fil-guardrails", "fil-council-cycle"} <= names and sum(n.startswith("ecc-") for n in names) >= 15
+    for d in dirs:
+        md = (d / "SKILL.md").read_text(encoding="utf-8")
+        m = re.match(r"^---\n(.*?)\n---\n", md, re.S)
+        assert m, d.name
+        assert re.search(rf"^name: {re.escape(d.name)}$", m.group(1), re.M), d.name      # name matches the folder
+        assert re.search(r"^description: .{40,}", m.group(1), re.M), d.name
+        assert not [p for p in d.rglob("*") if p.suffix in {".sh", ".py", ".js", ".ts", ".ps1"}], d.name
+        if d.name.startswith("ecc-"):
+            assert "fil-guardrails" in md                                                 # project rules first
+    assert (skills / "ECC-LICENSE.txt").read_text().startswith("MIT License")
