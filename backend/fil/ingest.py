@@ -256,6 +256,13 @@ def reconcile(s: Session, fx: Fixture) -> None:
     elif len(finals) > 1:
         if not fx.result_conflict:
             log("WARNING", "ingest", f"result conflict for fixture {fx.id}: {sorted(finals)} from {sorted(latest)}")
+            from .db import VirtualBet
+
+            settled = s.scalar(select(func.count(VirtualBet.id)).where(VirtualBet.fixture_id == fx.id,
+                                                                       VirtualBet.status != "pending"))
+            if settled:  # settlements are immutable: never reversed, but never silent either
+                log("ERROR", "ingest", f"fixture {fx.id} has {settled} settled bet(s) but sources now disagree "
+                                       f"{sorted(finals)}: settlement kept (immutable), needs owner review")
         fx.result_conflict = True
         fx.status, fx.home_goals, fx.away_goals = "unknown", None, None
     else:

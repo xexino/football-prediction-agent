@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useApi } from "../hooks";
 import { Card, Loading, Status, cls, eur, num, romeTime, selLabel, spct } from "../ui";
+import { legacyStake } from "../lib/honesty";
 
 export default function History() {
   const { data, error } = useApi<any>("bets", 120000);
@@ -37,7 +38,7 @@ export default function History() {
               <tr key={b.id}>
                 <td className="mono">{b.id}</td><td className="mono">{romeTime(b.created_at)}</td>
                 <td className="match">{b.fixture.home} – {b.fixture.away}<small>{b.fixture.competition_name} · {romeTime(b.fixture.kickoff_utc)}</small></td>
-                <td>{selLabel(b.market, b.selection, b.line)}</td><td className="num">{num(b.price)}</td><td className="num">{eur(b.stake)}</td>
+                <td>{selLabel(b.market, b.selection, b.line)}</td><td className="num">{num(b.price)}</td><td className="num">{eur(b.stake)}{legacyStake(b.created_at) && <small className="muted"> old €1 rule</small>}</td>
                 <td className="num">{spct(b.ev)}</td><td><Status s={b.status} /></td><td className="mono">{b.fixture.score || "—"}</td>
                 <td className={`num ${cls(b.profit)}`}>{b.profit === null ? "—" : eur(b.profit, true)}</td>
                 <td className="num">{num(b.closing_price)}</td><td className={`num ${cls(b.clv)}`}>{spct(b.clv)}</td>

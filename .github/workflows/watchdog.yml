@@ -67,12 +67,13 @@ jobs:
             else
               echo "::error::catch-up $wf ${job} could not be started"; cu_fail=1
             fi
-          done < <(jq -c '.catch_up[]' decision.json)
+          done < <(jq -c '(.catch_up // [])[]' decision.json)
           # 2) notification, idempotent with retries: GitHub's GraphQL API failed twice on 2026-11-25 (15:50, 16:17)
           #    and delayed incident #21 by ~87 min. Before every attempt we check (REST) whether an earlier attempt
           #    already succeeded, so a half-failed call never creates a duplicate issue or comment.
           num=$(jq -r '.decision.issue // empty' decision.json); title=$(jq -r '.decision.title // empty' decision.json)
-          fp=$(grep -o 'watchdog-fingerprint: [a-z0-9]*' body.md | head -1)
+          # `|| true`: no incident body (action none) means no fingerprint, which must not fail the step under pipefail
+          fp=$(grep -o 'watchdog-fingerprint: [a-z0-9]*' body.md | head -1 || true)
           open_with_title() { gh api "repos/$GH_REPO/issues?labels=autopilot-incident&state=open" --jq "[.[] | select(.title == \"$title\")] | length" 2>/dev/null | grep -qv '^0$'; }
           fp_posted() { [ -n "$fp" ] && gh api "repos/$GH_REPO/issues/$num/comments?per_page=100" --jq '.[].body' 2>/dev/null | grep -qF "$fp"; }
           is_closed() { [ "$(gh api "repos/$GH_REPO/issues/$num" --jq .state 2>/dev/null)" = closed ]; }

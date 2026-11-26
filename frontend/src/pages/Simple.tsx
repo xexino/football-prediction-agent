@@ -1,6 +1,7 @@
 import { Link } from "react-router-dom";
 import { useApi } from "../hooks";
 import { matchState } from "../lib/matchState";
+import { liveScoreText } from "../lib/honesty";
 
 /** "My view": the whole lab in plain language, for someone who does not want tables and log loss. */
 
@@ -32,7 +33,7 @@ function StatusLight({ hd, ops }: { hd: any; ops: any }) {
   const color = bad ? "#ef4444" : warn ? "#f59e0b" : "#22c55e";
   const text = bad ? (ageH > 8 ? `The data has not been refreshed for ${Math.round(ageH)} hours. The system will catch up automatically; nothing for you to do unless this lasts a day.`
     : "The last update failed. The previous data is still shown and the system will retry automatically.")
-    : warn ? `Working. ${overdue ? `${overdue} finished match${overdue > 1 ? "es are" : " is"} still waiting for an official result (smaller leagues publish late).` : "Some data sources are slow, nothing is broken."}`
+    : warn ? `Working. ${overdue ? `${overdue} finished match${overdue > 1 ? "es are" : " is"} still waiting for an official result (for Serie B, English lower leagues, Scotland and Japan our free result source updates 1–3 days after the match; a backup source is checked every 3 h for Serie B, League One/Two and Scotland).` : "Some data sources are slow, nothing is broken."}`
     : "Everything is working and up to date.";
   return (
     <div className="simple-card" style={{ borderLeft: `6px solid ${color}` }}>
@@ -61,8 +62,9 @@ function ForecastVsReality({ ov }: { ov: any }) {
     <div className="simple-card" style={{ marginTop: 12 }}>
       <div className="simple-k">Forecast vs reality (settled bets only)</div>
       <div className="simple-t" style={{ marginTop: 6 }}>
-        {b.settled} settled bet{b.settled === 1 ? "" : "s"}, €{staked.toFixed(0)} staked. <b>Actual result {eur(actual)}</b> ·
-        forecast {eur(exp)} (range {eur(lo)} to {eur(hi)}) → <b>{verdict}</b>.
+        {b.settled ? <>{b.settled} settled bet{b.settled === 1 ? "" : "s"}, €{staked.toFixed(0)} staked. <b>Actual result {eur(actual)}</b> ·
+        forecast {eur(exp)} (range {eur(lo)} to {eur(hi)}) → <b>{verdict}</b>.</>
+          : <>No settled bets yet. The forecast per €10 bet is {eur(10 * FORECAST.central)} (range {eur(10 * FORECAST.low)} to {eur(10 * FORECAST.high)}); the comparison starts with the first settled bet.</>}
         {b.avg_clv != null && <> Average closing-line value {(b.avg_clv * 100).toFixed(1)}% (positive = we bet at better prices than the market's final price; the best early sign of a real edge).</>}
         {" "}A few dozen bets are mostly luck; the comparison becomes meaningful after ~150 bets for closing-line value and many hundreds for profit.
       </div>
@@ -114,7 +116,7 @@ export default function Simple() {
         <div className="simple-card">
           <div className="simple-k">Virtual money</div>
           <div className="simple-v">{ov ? `€${(ov.bankroll.equity ?? ov.bankroll.current_bankroll).toFixed(2)}` : "…"}</div>
-          <div className="simple-t">Virtual capital €{ov ? ov.bankroll.starting_bankroll.toFixed(0) : "…"}. {ov ? `€${ov.bankroll.current_bankroll.toFixed(2)} free + €${(ov.bankroll.pending_exposure ?? 0).toFixed(2)} on ${ov.bankroll.pending} bet${ov.bankroll.pending === 1 ? "" : "s"} waiting for a result.` : ""} The model "bets" a flat €10 only when the price is clearly too generous; most days the right answer is no bet.</div>
+          <div className="simple-t">Virtual capital €{ov ? ov.bankroll.starting_bankroll.toFixed(0) : "…"}. {ov ? `€${ov.bankroll.current_bankroll.toFixed(2)} free + €${(ov.bankroll.pending_exposure ?? 0).toFixed(2)} on ${ov.bankroll.pending} bet${ov.bankroll.pending === 1 ? "" : "s"} waiting for a result${ov.bankroll.pending && (ov.bankroll.pending_exposure ?? 0) < 10 * ov.bankroll.pending ? " (placed at €1 each, before the €10 rule)" : ""}.` : ""} The model "bets" a flat €10 only when the price is clearly too generous; most days the right answer is no bet.</div>
         </div>
       </div>
 
@@ -145,7 +147,7 @@ export default function Simple() {
                 <div className="simple-small">Bookmakers: <b>{mk.who}</b> ({P(mk.pct)}) — {i.home} {P(i.market.home)} · draw {P(i.market.draw)} · {i.away} {P(i.market.away)}{mk.key === pk.key ? " · model and bookmakers agree" : " · model and bookmakers disagree"}</div>); })()}
               <div className="simple-result">
                 {res ? <>Final score {i.score} — {res === pk.key ? <b className="pos">the model was right ✓</b> : <b className="neg">the model was wrong ✗</b>}</>
-                  : st === "live" ? <span className="warn">Playing now{i.live?.score ? <> — <b>{i.live.score}</b> <span className="muted">(delayed score, {Math.max(0, Math.round((Date.now() - new Date(i.live.at).getTime()) / 60000))} min old)</span></> : " (or just finished)"}</span>
+                  : st === "live" ? <span className="warn">Playing now{i.live?.score ? <> — <span className="muted">{liveScoreText(i.live.score, Math.max(0, Math.round((Date.now() - new Date(i.live.at).getTime()) / 60000)))}</span></> : " (or just finished)"}</span>
                   : st === "awaiting" ? <span className="warn">Finished — waiting for the official result{i.live?.score ? <> (last live score {i.live.score})</> : null}</span>
                   : st === "postponed" ? <span className="muted">Postponed / not played</span> : <span className="muted">Not started yet</span>}
               </div>
