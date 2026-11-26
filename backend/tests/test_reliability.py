@@ -1048,3 +1048,17 @@ def test_overdue_fallback_budget_ignores_cached_answers(db, monkeypatch):
     out = collect.collect_overdue_results()
     assert out["cached"] == 5 and out["asked"] == 5 == len(net)    # the searches still ran
     assert set(net) == {"searchevents.php"}
+
+
+def test_thesportsdb_search_payload_key_is_parsed(monkeypatch):
+    """searchevents.php answers {"event": [...]}, not {"events": [...]} — the parser must read both."""
+    from fil.providers.base import FetchResult
+    from fil.providers.others import TheSportsDB
+    from fil.timeutil import utcnow
+
+    t = TheSportsDB()
+    payload = '{"event": [{"idLeague": "4394", "strEvent": "Mantova vs Arezzo", "strStatus": "FT"}]}'
+    monkeypatch.setattr(t, "get", lambda url, params=None, ttl=None: FetchResult(payload, url, utcnow(), from_cache=False))
+    events, _, _ = t._events("searchevents.php", {"e": "Mantova", "d": "2026-11-25"})
+    assert events and events[0]["strEvent"] == "Mantova vs Arezzo"
+    assert t.last_from_cache is False

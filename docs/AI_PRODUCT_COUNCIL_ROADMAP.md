@@ -173,3 +173,4 @@ Earlier items keep their IDs; the council IDs reference them, so no duplicate is
 | Shots-volume xG proxy (SOT + off-target + corners) | REJECTED | Underpowered: power 0.42–0.49 at the expected effect; not run |
 | Team-news (lineups/absences) shadow feature | PROPOSED | 40 % of A's gap to the market is in the top-10 % disagreements; needs a data key (owner decision) |
 | TheSportsDB 429 budget; gate for very late live crons; probably-postponed TheSportsDB-only fixtures in health | DEFERRED | Next cycle |
+| 2026-11-26 06:50 cycle: TheSportsDB `searchevents.php` answers under "event" (not "events"), so every per-fixture search looked empty | IMPLEMENTED | Found while verifying the live run; parser test added; dry run then resolves 8 of 9 |
