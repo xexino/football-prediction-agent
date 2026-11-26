@@ -56,6 +56,24 @@ def error_kind(message: str) -> str:
 
 
 class Provider:
+    _RATE: dict = {}  # provider key -> {"last": epoch of last request, "cooldown": epoch before which none is sent}
+
+    @property
+    def _last_request(self) -> float:
+        return Provider._RATE.setdefault(self.key, {}).get("last", 0.0)
+
+    @_last_request.setter
+    def _last_request(self, v: float) -> None:
+        Provider._RATE.setdefault(self.key, {})["last"] = v
+
+    @property
+    def _cooldown_until(self) -> float:
+        return Provider._RATE.setdefault(self.key, {}).get("cooldown", 0.0)
+
+    @_cooldown_until.setter
+    def _cooldown_until(self, v: float) -> None:
+        Provider._RATE.setdefault(self.key, {})["cooldown"] = v
+
     key: str = "base"
     name: str = "Base"
     kind: str = ""
@@ -67,7 +85,8 @@ class Provider:
     cache_ttl_s: int = 3600
 
     def __init__(self):
-        self._last_request = 0.0
+        # request spacing / 429 cool-down are shared by every instance of the same provider (collect.provider()
+        # builds a new instance per call; a fresh instance must not fire straight after another one's 429)
         self.cache_dir: Path = settings.cache_dir / self.key
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
@@ -159,7 +178,8 @@ class Provider:
                                datetime.fromtimestamp(cpath.stat().st_mtime, timezone.utc).replace(tzinfo=None), from_cache=True)
         last_exc: Exception | None = None
         for attempt in range(retries):
-            wait = self.min_interval_s - (time.time() - self._last_request)
+            wait = max(self.min_interval_s - (time.time() - self._last_request),
+                       self._cooldown_until - time.time())
             if wait > 0:
                 time.sleep(wait)
             try:
@@ -168,9 +188,18 @@ class Provider:
                     r = c.get(url, params=params)
                 if r.status_code == 429:
                     self._last_exc = "429"
-                    retry_after = float(r.headers.get("Retry-After", "0") or 0)
-                    time.sleep(min(max(retry_after, 2 ** attempt * 5), 30))
+                    try:
+                        retry_after = float(r.headers.get("Retry-After", "0") or 0)
+                    except ValueError:  # an HTTP-date Retry-After: use our own back-off
+                        retry_after = 0.0
+                    pause = min(max(retry_after, 2 ** attempt * 5), 30)
                     last_exc = ProviderError(f"rate limited (429) at {self.redact(str(r.url))}")
+                    if attempt == retries - 1:
+                        # no pointless sleep after the final attempt; the NEXT request of this provider still waits
+                        # out the cool-down (council cycle 2026-11-26 12:50: ~30 s lost per 429 episode)
+                        self._cooldown_until = time.time() + pause
+                        break
+                    time.sleep(pause)
                     continue
                 if r.status_code in (401, 403):
                     raise ProviderError(f"HTTP {r.status_code}: access denied for {self.redact(str(r.url))}")

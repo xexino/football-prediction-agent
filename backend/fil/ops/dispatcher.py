@@ -29,6 +29,7 @@ DEDUP_MIN = 15  # a run for the same job started within 15 min before the slot (
 # The watchdog must be started by the dispatcher: runs dispatched with GITHUB_TOKEN never fire `workflow_run`, and
 # GitHub's cron for this repository is unreliable (council cycle 2026-11-25 12:51: no watchdog run after 09:08).
 WATCHDOG_MINUTES = (17, 50)  # hourly, and 10 min after every :40 critical slot
+HANDOVER_BACKFILL_MIN = 10  # < DEDUP_MIN; minutes before its own start a successor re-checks (slots only, never the watchdog)
 
 
 def now_utc() -> datetime:
@@ -84,7 +85,10 @@ def main(argv=None) -> int:
     ap.add_argument("--max-minutes", type=int, default=345)
     a = ap.parse_args(argv)
     start = now_utc()
-    last = start - timedelta(minutes=1)
+    # look back over the hand-over gap: the previous run returns before it processes its last minute, so a slot
+    # on that minute (13:07 on 26 Nov, 12:07 on 27 Nov, ...) is only safe if the successor re-checks it.
+    # covered() stops a duplicate when the slot did run.
+    last = start - timedelta(minutes=1 + HANDOVER_BACKFILL_MIN)
     while True:
         cur = now_utc()
         if cur - start >= timedelta(minutes=a.max_minutes):
@@ -95,12 +99,15 @@ def main(argv=None) -> int:
             return 0 if ok else 1
         m = last + timedelta(minutes=1)
         while m <= cur:  # also processes minutes missed while a dispatch was slow
-            if m.minute in WATCHDOG_MINUTES and (m.minute == 17 or m.hour % 3 == 0):
+            if m >= start and m.minute in WATCHDOG_MINUTES and (m.minute == 17 or m.hour % 3 == 0):
                 dispatch(a.repo, "watchdog.yml")
             for cron, job in due(m):
                 try:
                     runs = recent_runs(a.repo)
                 except Exception as exc:
+                    if m < start:  # a backfilled minute that may already have run: never guess (a duplicate pending
+                        print(f"::warning::cannot read runs ({exc}); skipping backfilled {m:%H:%M}", flush=True)
+                        continue    # run could cancel a queued critical one); the watchdog's catch-up is the backstop
                     print(f"::warning::cannot read runs ({exc}); dispatching anyway", flush=True)
                     runs = []
                 if covered(runs, cron, job, m):

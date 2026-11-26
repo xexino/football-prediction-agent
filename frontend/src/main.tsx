@@ -126,6 +126,7 @@ function Shell() {
           <Route path="/compare" element={<Compare />} />
           <Route path="/engine-b" element={<EngineB />} />
           <Route path="/coverage" element={<CoveragePage />} />
+          <Route path="*" element={<div className="empty">Page not found. <a href="#/">Back to My view</a></div>} />
         </Routes>
       </main>
     </div>

@@ -1062,3 +1062,122 @@ def test_thesportsdb_search_payload_key_is_parsed(monkeypatch):
     events, _, _ = t._events("searchevents.php", {"e": "Mantova", "d": "2026-11-25"})
     assert events and events[0]["strEvent"] == "Mantova vs Arezzo"
     assert t.last_from_cache is False
+
+
+def test_log_inside_an_open_write_session_does_not_block_and_is_kept(db):
+    """log() inside a session holding SQLite's write lock used to wait 30 s and silently drop the line."""
+    import time
+
+    from fil.db import SystemLog, Team, log, session_scope
+    from sqlalchemy import select
+
+    t0 = time.time()
+    with session_scope() as s:
+        s.add(Team(name="Lockholder", country="X"))
+        s.flush()                                  # this session now holds the write lock
+        log("INFO", "collect", "written while the lock is held")
+        with session_scope() as inner:             # nested scopes buffer too
+            inner.scalar(select(Team.id).limit(1))
+            log("WARNING", "ingest", "nested")
+    assert time.time() - t0 < 5
+    with session_scope() as s:
+        msgs = {(r.component, r.message) for r in s.scalars(select(SystemLog))}
+    assert ("collect", "written while the lock is held") in msgs and ("ingest", "nested") in msgs
+    log("INFO", "collect", "outside any scope")    # the normal path still writes immediately
+    with session_scope() as s:
+        assert s.scalar(select(SystemLog.id).where(SystemLog.message == "outside any scope")) is not None
+
+
+def test_429_final_attempt_does_not_sleep_but_next_request_cools_down(monkeypatch, tmp_path):
+    import httpx
+
+    from fil.providers import base
+    from fil.providers.others import TheSportsDB
+
+    assert TheSportsDB.min_interval_s >= 5.0                      # stays under ~13-14 requests/minute
+    sleeps = []
+    clock = [1000.0]
+    monkeypatch.setattr(base.time, "sleep", lambda x: (sleeps.append(round(x, 1)), clock.__setitem__(0, clock[0] + x)))
+    monkeypatch.setattr(base.time, "time", lambda: clock[0])
+
+    class R:
+        status_code, headers, url, content = 429, {}, "https://x/api", b""
+
+    class C:
+        def __init__(self, *a, **k): pass
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def get(self, url, params=None): return R()
+
+    monkeypatch.setattr(base.httpx, "Client", C)
+    t = TheSportsDB()
+    t.cache_dir = tmp_path
+    t._last_request = 0.0
+    try:
+        t.get("https://x/api", ttl=0, retries=3)
+    except base.ProviderError:
+        pass
+    assert sleeps == [5.0, 10.0]                                  # back-off after attempts 1 and 2 only, none after 3
+    assert t._cooldown_until > clock[0]                           # ... but the next request will wait it out
+    sleeps.clear()
+    try:
+        t.get("https://x/api2", ttl=0, retries=1)
+    except base.ProviderError:
+        pass
+    assert sleeps and sleeps[0] >= 19.9
+
+
+def _drive_dispatcher(monkeypatch, start, minutes, runs):
+    calls = []
+    clock = [start]
+    monkeypatch.setattr(dispatcher, "now_utc", lambda: clock[0])
+    monkeypatch.setattr(dispatcher.time, "sleep", lambda x: clock.__setitem__(0, clock[0] + timedelta(minutes=1)))
+    monkeypatch.setattr(dispatcher, "dispatch", lambda repo, wf, job=None: calls.append((wf, job)) or True)
+    monkeypatch.setattr(dispatcher, "recent_runs", lambda repo: runs)
+    dispatcher.main(["--repo", "r", "--max-minutes", str(minutes)])
+    return calls
+
+
+def test_dispatcher_successor_catches_the_handover_minute(monkeypatch):
+    # the predecessor handed over at 13:07:00 and returned before processing 13:07; the successor starts at 13:08
+    calls = _drive_dispatcher(monkeypatch, datetime(2026, 11, 26, 13, 8), 2, [])
+    assert ("autopilot.yml", "live") in calls                          # the 13:07 live slot is not lost
+    assert calls.count(("autopilot.yml", "live")) == 1
+
+
+def test_dispatcher_backfill_never_duplicates_a_slot_that_ran(monkeypatch):
+    ran = [{"display_title": "Autopilot · live", "created_at": "2026-11-26T13:07:02Z"}]
+    calls = _drive_dispatcher(monkeypatch, datetime(2026, 11, 26, 13, 8), 2, ran)
+    assert ("autopilot.yml", "live") not in calls
+
+
+def test_dispatcher_backfill_never_restarts_the_watchdog(monkeypatch):
+    # successor starting at 12:52 looks back to 12:48: the 12:50 watchdog minute is NOT re-dispatched
+    calls = _drive_dispatcher(monkeypatch, datetime(2026, 11, 26, 12, 52), 2, [])
+    assert ("watchdog.yml", None) not in calls
+
+
+def test_rate_state_is_shared_between_instances_and_bad_retry_after_is_harmless():
+    from fil.providers.others import TheSportsDB
+
+    a, b = TheSportsDB(), TheSportsDB()
+    a._cooldown_until = 12345.0
+    assert b._cooldown_until == 12345.0          # a fresh instance inherits the cool-down
+    a._cooldown_until = 0.0
+    src = (ROOT / "backend/fil/providers/base.py").read_text()
+    assert "except ValueError" in src
+
+
+def test_dispatcher_backfill_skips_when_runs_cannot_be_read(monkeypatch):
+    calls = []
+    clock = [datetime(2026, 11, 26, 13, 8)]
+    monkeypatch.setattr(dispatcher, "now_utc", lambda: clock[0])
+    monkeypatch.setattr(dispatcher.time, "sleep", lambda x: clock.__setitem__(0, clock[0] + timedelta(minutes=1)))
+    monkeypatch.setattr(dispatcher, "dispatch", lambda repo, wf, job=None: calls.append((wf, job)) or True)
+
+    def boom(repo):
+        raise RuntimeError("api down")
+
+    monkeypatch.setattr(dispatcher, "recent_runs", boom)
+    dispatcher.main(["--repo", "r", "--max-minutes", "2"])
+    assert ("autopilot.yml", "live") not in calls   # 13:07 was backfilled: not guessed when GitHub can't be read

@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from "react";
 import { useApi } from "../hooks";
 import { Card, Decision, Explanation, Form, Loading, ProbBar, Quality, num, pct, romeTime, selLabel, spct } from "../ui";
+import { statusNow } from "../ui";
 
 export function ValueTable({ rows }: { rows: any[] }) {
   return (
@@ -122,7 +123,8 @@ export default function Upcoming() {
                       <td><Quality q={p?.data_quality} /></td>
                       <td className="mono">{best ? <span className={best.qualifies ? "pos" : "muted"}>{selLabel(best.market, best.selection, best.line)} {spct(best.ev_conservative)}</span> : "—"}
                         {oddsErr && <div><span className="badge b-err" title="Some bookmaker prices look corrupt; those markets were excluded">⚠ ODDS ERROR</span></div>}</td>
-                      <td>{p ? <Decision d={p.decision} /> : new Date(f.kickoff_utc) <= new Date() ? <span className="badge b-pending">STARTED · AWAITING RESULT</span>
+                      <td>{new Date(f.kickoff_utc) <= new Date() ? <><span className="badge b-pending">{statusNow(f).toUpperCase()}</span>{p && <div><small className="muted">pre-match: </small><Decision d={p.decision} /></div>}</>
+                        : p ? <Decision d={p.decision} />
                         : <span className="badge b-inel" title={(f.ineligible_reasons || []).join("; ")}>{f.coverage_label === "DATA COVERAGE ONLY — PREDICTIONS NOT ENABLED" ? "COVERAGE ONLY" : "INSUFFICIENT DATA"}</span>}</td>
                     </tr>
                     {open === f.id && <tr className="detail"><td colSpan={9}><Detail f={f} /></td></tr>}
