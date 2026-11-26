@@ -3,6 +3,7 @@ import { Link } from "react-router-dom";
 import { useApi } from "../../hooks";
 import { Loading, num, pct, romeTime } from "../../ui";
 import { Coverage, LiveBadge, SubNav, Tri } from "./common";
+import { matchState } from "../../lib/matchState";
 
 const TABS = [["upcoming", "Upcoming"], ["live", "Live"], ["finished", "Recent results"], ["all", "All"]] as const;
 
@@ -20,14 +21,18 @@ export default function Insights() {
   const days = useMemo(() => Array.from(new Set(items.map((i: any) => i.kickoff_rome?.slice(0, 10)))).sort() as string[], [items]);
   if (!data) return <Loading error={error} />;
   // phase as of NOW (the snapshot's phase is frozen at export time)
-  const phaseNow = (i: any) => i.phase === "finished" || i.phase === "live" || i.phase === "postponed" ? i.phase
-    : Date.now() > new Date(i.kickoff_utc).getTime() ? "awaiting_result" : "upcoming";
+  // one rule for every page (lib/matchState); a score means finished
+  const phaseNow = (i: any) => {
+    if (i.score) return "finished";
+    const st = matchState(i.kickoff_utc, i.phase);
+    return st === "awaiting" ? "awaiting_result" : st;
+  };
   const rows = items.map((i: any) => ({ ...i, phase: phaseNow(i) })).filter((i: any) =>
     (tab === "all" || i.phase === tab || (tab === "finished" && i.phase === "awaiting_result")) &&
     (!comp || i.competition_name === comp) && (!region || i.region === region) && (!day || i.kickoff_rome?.startsWith(day)) &&
     (!onlyPred || i.engine_b || i.phase === "live") &&
     (!q || `${i.home} ${i.away} ${i.competition_name}`.toLowerCase().includes(q.toLowerCase())));
-  const liveCount = items.filter((i: any) => i.phase === "live").length;
+  const liveCount = items.filter((i: any) => phaseNow(i) === "live").length;
   return (
     <>
       <div className="topbar"><div><h1>AI Match Insights</h1><div className="sub">Engine B — independent statistical engine with an evidence-based match analyst. Times Europe/Rome.</div></div>

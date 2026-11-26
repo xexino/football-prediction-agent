@@ -1,4 +1,5 @@
 import React from "react";
+import { matchState } from "./lib/matchState";
 
 export const pct = (x: number | null | undefined, d = 1) => (x === null || x === undefined ? "—" : `${(x * 100).toFixed(d)}%`);
 export const spct = (x: number | null | undefined, d = 1) =>
@@ -135,10 +136,17 @@ export function Explanation({ ex }: { ex: any }) {
 }
 
 
-/** A match without a score whose kickoff was more than 3 h ago: the result has not arrived yet (never "scheduled"). */
-export const awaitingResult = (f: { status?: string; score?: string | null; kickoff_utc?: string }) =>
-  !f.score && f.status !== "finished" && !!f.kickoff_utc && Date.now() - new Date(f.kickoff_utc).getTime() > 3 * 3.6e6;
+type Fx = { status?: string; phase?: string; score?: string | null; kickoff_utc?: string };
+/** The snapshot's phase, or the fixture status where no phase is exported. */
+const phaseOf = (f: Fx) => f.phase || (f.status === "finished" || f.status === "postponed" ? f.status : undefined);
+/** A started match without a score that is no longer (probably) being played. One rule for every page:
+ *  lib/matchState (council cycle 2026-11-26 06:50 — three helpers disagreed). */
+export const awaitingResult = (f: Fx, now: number = Date.now()) =>
+  !f.score && !!f.kickoff_utc && matchState(f.kickoff_utc, phaseOf(f), now) === "awaiting";
 /** Status text for a fixture as of NOW in the viewer's browser (the static snapshot may be hours old). */
-export const statusNow = (f: { status?: string; score?: string | null; kickoff_utc?: string }) =>
-  f.score ? `FT ${f.score}` : awaitingResult(f) ? "awaiting result" :
-  f.kickoff_utc && Date.now() > new Date(f.kickoff_utc).getTime() ? "in play / just played" : (f.status || "scheduled");
+export const statusNow = (f: Fx, now: number = Date.now()) => {
+  if (f.score) return `FT ${f.score}`;
+  if (!f.kickoff_utc) return f.status || "scheduled";
+  const st = matchState(f.kickoff_utc, phaseOf(f), now);
+  return st === "live" ? "in play" : st === "awaiting" ? "awaiting result" : st === "postponed" ? "postponed" : (f.status || "scheduled");
+};

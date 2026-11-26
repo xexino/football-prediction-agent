@@ -940,3 +940,111 @@ def test_overdue_fallback_is_not_a_fixture_source():
     from fil.jobs import _steps_results
 
     assert [n for n, *_ in _steps_results()][:2] == ["results", "overdue_results"]  # before settle
+
+
+# ------------------------------------------------------------------ fallback v2 (cycle 2026-11-26 06:50)
+def test_names_match_prefix_suffix_and_abbreviations():
+    from fil.collect import names_match as m
+
+    assert m("bradford city", "bradford") and m("leicester city", "leicester") and m("hellas verona", "verona")
+    assert m("doncaster rovers", "doncaster") and m("huddersfield town", "huddersfield")
+    assert m("sheffield wednesday", "sheffield weds") and m("bristol rovers", "bristol rvs")
+    assert not m("sheffield utd", "sheffield wednesday")       # same first word, different club
+    assert not m("bristol city", "bristol rovers")
+    assert not m("ac", "ac milan")                              # < 4 letters never counts
+    assert not m("", "bradford")
+
+
+def test_overdue_matching_full_names_and_reverse_uniqueness():
+    from fil.collect import overdue_events_to_results as m
+
+    fx = [dict(id=9, date="2026-11-24", home_names={"bradford"}, away_names={"barnsley"})]
+    ev = _ev(home="Bradford City", away="Barnsley", hg="3", ag="0", league="4396", day="2026-11-24")
+    assert m([ev], "4396", fx) == [(9, 3, 0)]
+    dup = dict(ev, intHomeScore="2")                            # a second event claiming the same fixture
+    assert m([ev, dup], "4396", fx) == []
+
+
+def test_overdue_fallback_searches_open_bet_first(db, monkeypatch):
+    import sqlite3
+
+    from fil import collect
+    from fil.db import Competition, Fixture, Team, session_scope
+    from fil.timeutil import utcnow
+    from sqlalchemy import select
+
+    ko = utcnow().replace(minute=0, second=0, microsecond=0) - timedelta(hours=5)
+    ids = {}
+    with session_scope() as s:
+        comp = s.scalar(select(Competition).where(Competition.code == "ENG3"))
+        for key, hn, an, k in (("other", "Bradford", "Barnsley", ko - timedelta(days=1)), ("bet", "Doncaster", "Huddersfield", ko)):
+            h, a = Team(name=hn, country="England"), Team(name=an, country="England")
+            s.add_all([h, a]); s.flush()
+            f = Fixture(competition_id=comp.id, season="2026", home_team_id=h.id, away_team_id=a.id, kickoff_utc=k,
+                        match_date=k.strftime("%Y-%m-%d"), neutral=False, status="scheduled",
+                        first_seen_source="football_data_uk", external_ids={})
+            s.add(f); s.flush()
+            ids[key] = f.id
+    con = sqlite3.connect(db)  # a pending bet row (foreign keys off: the full prediction pipeline is not needed)
+    con.execute("PRAGMA foreign_keys=OFF")
+    con.execute("INSERT INTO virtual_bets (prediction_id, value_assessment_id, fixture_id, model_version_id, market, "
+                "selection, price, bookmaker, stake, potential_return, model_prob, ev, kickoff_utc, status, created_at) "
+                "VALUES (1, 1, ?, 1, '1X2', 'home', 4.5, 'b', 1, 4.5, 0.27, 0.2, ?, 'pending', ?)",
+                (ids["bet"], ko.isoformat(sep=" "), (ko - timedelta(hours=20)).isoformat(sep=" ")))
+    con.commit(); con.close()
+    calls = []
+    day = ko.strftime("%Y-%m-%d")
+
+    def fake(endpoint, params, ttl=None):
+        calls.append((endpoint, params.get("e")))
+        tsdb.last_from_cache = False
+        if endpoint == "searchevents.php" and params["e"] == "Doncaster":
+            assert params["d"] == day
+            return ([_ev(home="Doncaster Rovers", away="Huddersfield Town", hg="2", ag="1", league="4396", day=day)],
+                    "u", utcnow())
+        return ([], "u", utcnow())
+
+    tsdb = collect.provider("thesportsdb")
+    monkeypatch.setattr(tsdb, "_events", fake)
+    monkeypatch.setattr(collect, "provider", lambda k: tsdb)
+    out = collect.collect_overdue_results()
+    assert calls[0] == ("searchevents.php", "Doncaster")              # the open bet is asked before anything else
+    assert ("eventsday.php", None) in calls and ("searchevents.php", "Bradford") in calls
+    assert out["results_found"] == 1 and out["still_overdue"] == 1
+    with session_scope() as s:
+        f = s.get(Fixture, ids["bet"])
+        assert (f.status, f.home_goals, f.away_goals) == ("finished", 2, 1)
+
+
+def test_overdue_fallback_budget_ignores_cached_answers(db, monkeypatch):
+    from fil import collect
+    from fil.timeutil import utcnow
+
+    base = utcnow().replace(minute=0, second=0, microsecond=0)
+    for d in range(1, 6):
+        from fil.db import Competition, Fixture, Team, session_scope
+        from sqlalchemy import select
+
+        with session_scope() as s:
+            comp = s.scalar(select(Competition).where(Competition.code == "ITA2"))
+            h, a = Team(name=f"Casa{d}", country="Italy"), Team(name=f"Ospite{d}", country="Italy")
+            s.add_all([h, a]); s.flush()
+            k = base - timedelta(days=d)
+            s.add(Fixture(competition_id=comp.id, season="2026", home_team_id=h.id, away_team_id=a.id, kickoff_utc=k,
+                          match_date=k.strftime("%Y-%m-%d"), neutral=False, status="scheduled",
+                          first_seen_source="football_data_uk", external_ids={}))
+    net = []
+
+    def fake(endpoint, params, ttl=None):
+        cached = endpoint == "eventsday.php"          # every day list is a fresh cached answer
+        tsdb.last_from_cache = cached
+        if not cached:
+            net.append(endpoint)
+        return ([], "u", utcnow())
+
+    tsdb = collect.provider("thesportsdb")
+    monkeypatch.setattr(tsdb, "_events", fake)
+    monkeypatch.setattr(collect, "provider", lambda k: tsdb)
+    out = collect.collect_overdue_results()
+    assert out["cached"] == 5 and out["asked"] == 5 == len(net)    # the searches still ran
+    assert set(net) == {"searchevents.php"}

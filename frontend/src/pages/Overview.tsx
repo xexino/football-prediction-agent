@@ -3,6 +3,7 @@ import { useApi } from "../hooks";
 import { Card, Decision, Loading, ProbBar, Quality, Stat, ago, cls, eur, num, pct, romeTime, selLabel, spct, tooltipStyle } from "../ui";
 import { Link } from "react-router-dom";
 import TodayCard from "./TodayCard";
+import { sampleNote, smallSample } from "../lib/honesty";
 
 export default function Overview() {
   const { data, error, updated } = useApi<any>("overview", 60000);
@@ -24,9 +25,10 @@ export default function Overview() {
       <div className="grid g6" style={{ marginTop: 12 }}>
         <Stat label="Virtual bankroll" value={eur(b.current_bankroll)} delta={`start ${eur(b.starting_bankroll)} · exposure ${eur(b.pending_exposure)}`} />
         <Stat label="Net P/L (settled)" value={eur(b.profit, true)} tone={cls(b.profit)} delta={`staked ${eur(b.staked)}`} />
-        <Stat label="ROI" value={spct(b.roi)} tone={cls(b.roi)} delta={`CLV ${spct(b.avg_clv)}`} />
+        {/* display only: below MIN_SAMPLE settled bets a percentage is noise (1 bet showed "ROI +333 %") */}
+        <Stat label="ROI" value={smallSample(b.settled) ? "—" : spct(b.roi)} tone={smallSample(b.settled) ? undefined : cls(b.roi)} delta={smallSample(b.settled) ? sampleNote(b.settled) : `CLV ${spct(b.avg_clv)}`} />
         <Stat label="Total bets" value={b.bets} delta={`${b.won}W · ${b.lost}L · ${b.void}V`} />
-        <Stat label="Win rate" value={pct(b.win_rate)} delta={`max DD ${eur(b.max_drawdown)}`} />
+        <Stat label="Win rate" value={smallSample(b.settled) ? "—" : pct(b.win_rate)} delta={smallSample(b.settled) ? `profit ${eur(b.profit)} so far` : `max DD ${eur(b.max_drawdown)}`} />
         <Stat label="Pending bets" value={b.pending} delta={`${data.predictions_total} predictions stored`} />
       </div>
       <div className="grid g3" style={{ marginTop: 12 }}>

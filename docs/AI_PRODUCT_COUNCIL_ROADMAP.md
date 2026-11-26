@@ -167,3 +167,9 @@ Earlier items keep their IDs; the council IDs reference them, so no duplicate is
 | Rest-day adjustment | REJECTED | ΔLL +0.0009 [−0.0003, +0.0020] on 4,881 holdout matches |
 | Pi-ratings + gradient boosting (owner request) | REJECTED | 1X2 LL 1.040 vs A 0.993; pool weight ≈ 0 |
 | Engine A + B log-linear pool, OU2.5 | NOT APPLIED | ΔLL −0.0023 [−0.0035, −0.0012] but changes no bet; owner: keep situation as it is |
+| 2026-11-26 06:50 cycle: fallback v2 (prefix/suffix names, per-fixture search, open bets first, 12 h day-list cache, budget counts network calls only, daily job) | IMPLEMENTED | 3 runs found 0 after the first; dry run 4/9 more, nothing created |
+| 2026-11-26 06:50 cycle: one match-state rule on every page (statusNow/awaitingResult/Insights/Compare/TodayCard/History via matchState) | IMPLEMENTED | Pages disagreed; "in play / just played" never ended |
+| 2026-11-26 06:50 cycle: legacy bankroll tag on /history; ROI and win rate hidden below 20 settled bets | IMPLEMENTED | "€99 → €502.33", "ROI +333 %" on one €1 bet |
+| Shots-volume xG proxy (SOT + off-target + corners) | REJECTED | Underpowered: power 0.42–0.49 at the expected effect; not run |
+| Team-news (lineups/absences) shadow feature | PROPOSED | 40 % of A's gap to the market is in the top-10 % disagreements; needs a data key (owner decision) |
+| TheSportsDB 429 budget; gate for very late live crons; probably-postponed TheSportsDB-only fixtures in health | DEFERRED | Next cycle |

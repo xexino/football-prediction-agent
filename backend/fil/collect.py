@@ -285,17 +285,39 @@ def _store_standings(fd_code: str, rows: list[dict], season: str, ts) -> int:
 # `tsdb` source: that would also switch on fixture discovery (more 429s, more chances of duplicate fixtures).
 # ENG5 and JPN1 have no usable free fallback and stay on football-data.co.uk's timing.
 OVERDUE_TSDB_LEAGUE = {"ITA2": "4394", "ENG3": "4396", "ENG4": "4397", "SCO1": "4330"}
-OVERDUE_MAX_CALLS = 8
+OVERDUE_MAX_CALLS = 8  # day lists + per-fixture searches together, per run
+DAY_LIST_TTL = 12 * 3600
+SEARCH_TTL = 3 * 3600
 OVERDUE_AFTER = timedelta(hours=3)
 OVERDUE_LOOKBACK = timedelta(days=7)
 FINAL_STATUSES = {"FT", "Match Finished"}  # explicit full time only: never a stuck live score, never HT/2H/AET/PST
 
 
+# football-data.co.uk abbreviations vs TheSportsDB full names; used ONLY by the fallback matcher (changing
+# teamnames.normalize would desynchronise the stored TeamAlias.alias_norm rows)
+_EXPAND = {"weds": "wednesday", "rvs": "rovers", "peterboro": "peterborough", "wand": "wanderers"}
+
+
+def names_match(a: str, b: str) -> bool:
+    """Normalised names are equal, or the shorter one's words are the start or the end of the longer one's
+    ("bradford" / "bradford city", "verona" / "hellas verona"). Only used together with the strict context
+    below (same league id, same date, both teams, a single candidate), never to create an alias."""
+    ta, tb = [_EXPAND.get(t, t) for t in a.split()], [_EXPAND.get(t, t) for t in b.split()]
+    if not ta or not tb:
+        return False
+    if ta == tb:
+        return True
+    short, long_ = sorted((ta, tb), key=len)
+    if len(short) == len(long_) or len("".join(short)) < 4:
+        return False
+    return long_[:len(short)] == short or long_[-len(short):] == short
+
+
 def overdue_events_to_results(events: list[dict], league_id: str, fixtures: list[dict]) -> list[tuple[int, int, int]]:
     """Pure matching step: (fixture_id, home_goals, away_goals) for events that are explicitly full time, belong
-    to this league, and whose BOTH team names match the fixture's known names exactly (canonical name or an
-    alias already in the DB, normalised). Nothing fuzzy, nothing created. `fixtures`: dicts with id, date,
-    home_names, away_names (sets of normalised names)."""
+    to this league, and whose BOTH team names match the fixture's known names (canonical name or an alias
+    already in the DB, normalised; see names_match). Nothing created. `fixtures`: dicts with id, date,
+    home_names, away_names (sets of normalised names) — only the overdue fixtures of that league and date."""
     from .teamnames import normalize
 
     out = []
@@ -309,17 +331,22 @@ def overdue_events_to_results(events: list[dict], league_id: str, fixtures: list
         except (TypeError, ValueError):
             continue
         hn, an = normalize(e.get("strHomeTeam") or ""), normalize(e.get("strAwayTeam") or "")
-        hits = [f for f in fixtures if f["date"] == (e.get("dateEvent") or "") and hn in f["home_names"]
-                and an in f["away_names"]]
+        hits = [f for f in fixtures if f["date"] == (e.get("dateEvent") or "")
+                and any(names_match(hn, x) for x in f["home_names"]) and any(names_match(an, x) for x in f["away_names"])]
         if len(hits) == 1 and 0 <= hg <= 20 and 0 <= ag <= 20:
             out.append((hits[0]["id"], hg, ag))
-    return out
+    # the other direction too: a fixture claimed by two events (e.g. a TheSportsDB duplicate) is dropped
+    per_fixture: dict[int, int] = {}
+    for fid, _, _ in out:
+        per_fixture[fid] = per_fixture.get(fid, 0) + 1
+    return [r for r in out if per_fixture[r[0]] == 1]
 
 
 def collect_overdue_results(now: datetime | None = None) -> dict:
-    """Ask TheSportsDB's by-day list (once per league and date, at most OVERDUE_MAX_CALLS calls, dates with open
-    bets first, stopping at the first rate limit) for fixtures >3 h past kick-off without a result, and record
-    exact matches as `thesportsdb` result observations. Settlement then follows the normal rules.
+    """For fixtures >3 h past kick-off without a result: TheSportsDB's by-day list per (league, date), cached 12 h
+    because the free key returns only ~3 events; then a per-fixture event search for the rest (open bets first,
+    newest day first). At most OVERDUE_MAX_CALLS network requests per run, stopping at the first rate limit.
+    Matches (see overdue_events_to_results) are recorded as `thesportsdb` result observations. Settlement then follows the normal rules.
     Known limit: a settled bet is final. If football-data.co.uk later reports a different score, reconcile marks
     a conflict and logs an ERROR; the bet is not reversed."""
     from .db import Competition, Fixture, ResultObservation, Team, TeamAlias, VirtualBet, session_scope
@@ -339,15 +366,18 @@ def collect_overdue_results(now: datetime | None = None) -> dict:
             VirtualBet.fixture_id.in_([f.id for f in fx] or [-1]), VirtualBet.status == "pending")))
         team_ids = {t for f in fx for t in (f.home_team_id, f.away_team_id)}
         names: dict[int, set] = {t: set() for t in team_ids}
+        canonical: dict[int, str] = {}
         for tid, name in s.execute(select(Team.id, Team.name).where(Team.id.in_(team_ids or [-1]))):
             names[tid].add(normalize(name))
+            canonical[tid] = name
         for tid, alias in s.execute(select(TeamAlias.team_id, TeamAlias.alias_norm).where(TeamAlias.team_id.in_(team_ids or [-1]))):
             names[tid].add(alias)
         by_pair: dict[tuple[str, str], list[dict]] = {}
         for f in fx:
             d = f.kickoff_utc.strftime("%Y-%m-%d")
             by_pair.setdefault((codes[f.competition_id], d), []).append(
-                dict(id=f.id, date=d, home_names=names[f.home_team_id], away_names=names[f.away_team_id], bet=f.id in bet_fx))
+                dict(id=f.id, date=d, home_names=names[f.home_team_id], away_names=names[f.away_team_id], bet=f.id in bet_fx,
+                     home_query=canonical[f.home_team_id]))
     order = sorted(by_pair, key=lambda k: (not any(x["bet"] for x in by_pair[k]), [-ord(ch) for ch in k[1]], k[0]))
     out = {"overdue_fixtures": sum(len(v) for v in by_pair.values()), "pairs": len(order), "asked": 0,
            "results_found": 0, "errors": []}
@@ -358,27 +388,17 @@ def collect_overdue_results(now: datetime | None = None) -> dict:
     if skipped:
         return {**out, **skipped}
     stale0 = getattr(tsdb, "stale_served", 0)
-    for code, day in order[:OVERDUE_MAX_CALLS]:
-        lid = OVERDUE_TSDB_LEAGUE[code]
-        try:
-            events, url, ts = tsdb._events("eventsday.php", {"d": day, "l": lid}, ttl=2 * 3600)
-        except ProviderError as e:
-            out["errors"].append(f"{code} {day}: {e}")
-            if "429" in str(e):
-                break  # rate limited: stop here, the next results run continues
-            continue
-        out["asked"] += 1
-        if getattr(tsdb, "stale_served", 0) > stale0:  # an old cached answer is not a result
-            out["stale_cache"] = tsdb.stale_served - stale0
-            break
-        found = overdue_events_to_results(events, lid, by_pair[(code, day)])
-        if not found:
-            continue
+    done: set[int] = set()
+
+    def record(found: list[tuple[int, int, int]], ts) -> None:
         with session_scope() as s:
             for fid, hg, ag in found:
+                if fid in done:
+                    continue
                 r = s.execute(sqlite_insert(ResultObservation).values(
                     fixture_id=fid, source=tsdb.key, status="finished", home_goals=hg, away_goals=ag,
                     retrieved_at=ts or utcnow()).on_conflict_do_nothing())
+                done.add(fid)
                 if r.rowcount:
                     out["results_found"] += 1
                     f = s.get(Fixture, fid)
@@ -386,7 +406,59 @@ def collect_overdue_results(now: datetime | None = None) -> dict:
                     f.updated_at = utcnow()
                     log("INFO", "collect", f"overdue result from TheSportsDB (single source until football-data.co.uk "
                                            f"publishes): fixture {fid} {hg}-{ag}")
+
+    def ask(endpoint: str, params: dict, ttl: int):
+        """One budgeted call; None = stop the whole fallback (rate limit / stale cache / budget spent)."""
+        if out["asked"] + len(out["errors"]) >= OVERDUE_MAX_CALLS:
+            return None
+        try:
+            events, url, ts = tsdb._events(endpoint, params, ttl=ttl)
+        except ProviderError as e:
+            out["errors"].append(f"{endpoint} {params}: {e}")
+            return None if "429" in str(e) else ([], None)
+        if getattr(tsdb, "last_from_cache", False):
+            out["cached"] = out.get("cached", 0) + 1  # a fresh cached answer costs no request
+        else:
+            out["asked"] += 1
+        if getattr(tsdb, "stale_served", 0) > stale0:  # an old cached answer is not a result
+            out["stale_cache"] = tsdb.stale_served - stale0
+            return None
+        return events, ts
+
+    def search(code: str, day: str, fx: dict) -> bool:
+        res = ask("searchevents.php", {"e": fx["home_query"].replace(" ", "_"), "d": day}, SEARCH_TTL)
+        if res is None:
+            return False
+        record(overdue_events_to_results(res[0], OVERDUE_TSDB_LEAGUE[code], [fx]), res[1])
+        return True
+
+    def day_ttl(day: str) -> int:
+        # a day's list is cached 12 h only once every match of that day is surely over (the free key returns
+        # only ~3 events, the same ones every time); otherwise 2 h
+        end = datetime.fromisoformat(day) + timedelta(days=1)
+        return DAY_LIST_TTL if now > end + OVERDUE_AFTER else 2 * 3600
+
+    items = [(code, day, fx) for code, day in order for fx in by_pair[(code, day)]]
+    newest = lambda t: [-ord(ch) for ch in t[1]]  # noqa: E731
+    ok = True
+    # 1) open-bet fixtures: a direct search first (the capped day list may never contain them)
+    for code, day, fx in sorted((t for t in items if t[2]["bet"]), key=newest):
+        if not (ok := search(code, day, fx)):
+            break
+    # 2) one by-day list per (league, date)
+    for code, day in (order if ok else []):
+        if all(f["id"] in done for f in by_pair[(code, day)]):
+            continue
+        res = ask("eventsday.php", {"d": day, "l": OVERDUE_TSDB_LEAGUE[code]}, day_ttl(day))
+        if res is None:
+            ok = False
+            break
+        record(overdue_events_to_results(res[0], OVERDUE_TSDB_LEAGUE[code], by_pair[(code, day)]), res[1])
+    # 3) per-fixture search for what the capped lists did not contain, newest day first
+    for code, day, fx in (sorted((t for t in items if t[2]["id"] not in done and not t[2]["bet"]), key=newest) if ok else []):
+        if not search(code, day, fx):
+            break
     if out["errors"] and not out["asked"]:
         tsdb.mark_error("; ".join(out["errors"])[:900], requests=len(out["errors"]))
-    out["skipped_pairs"] = max(0, len(order) - OVERDUE_MAX_CALLS)
+    out["still_overdue"] = out["overdue_fixtures"] - len(done)
     return out
