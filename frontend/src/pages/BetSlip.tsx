@@ -1,5 +1,6 @@
 import { useApi } from "../hooks";
 import { Card, Loading, Status, eur, num, pct, romeTime, selLabel, spct } from "../ui";
+import { legacyStake } from "../lib/honesty";
 
 export default function BetSlip() {
   const { data, error } = useApi<any>("bets?status=pending", 60000);
@@ -23,7 +24,7 @@ export default function BetSlip() {
               <div className="kv">
                 <span>Selection</span><span><b>{selLabel(b.market, b.selection, b.line)}</b></span>
                 <span>Odds</span><span className="mono">{num(b.price)} <span className="muted">({b.bookmaker_label})</span></span>
-                <span>Stake</span><span className="mono">{eur(b.stake)}</span>
+                <span>Stake</span><span className="mono">{eur(b.stake)}{legacyStake(b.created_at) && <small className="muted"> old €1 rule</small>}</span>
                 <span>Potential return</span><span className="mono">{eur(b.potential_return)}</span>
                 <span>Model probability</span><span className="mono">{pct(b.model_prob)}</span>
                 <span>Expected value</span><span className="mono pos">{spct(b.ev)}</span>

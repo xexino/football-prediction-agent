@@ -28,6 +28,8 @@ LEASE_MINUTES = 90  # a 'running' row older than this is considered dead (crashe
 # (step name, callable, critical?)
 def _steps_results():
     return [("results", lambda: collect.collect_history(full=False), False),
+            # football-data.co.uk is 2-3 days late for Serie B / League One / Two / Scottish Prem.
+            ("overdue_results", collect.collect_overdue_results, False),
             ("settle", settle_pending, True),
             ("evaluate", pipeline.evaluate_predictions, False)]
 
@@ -211,6 +213,8 @@ def run_report(name: str, steps: dict, results: dict, status: str) -> dict:
         for k, v in fx.items():
             if isinstance(v, dict) and (v.get("error") or v.get("errors")):
                 provider_failures.append(k)
+            elif isinstance(v, dict) and v.get("stale_cache"):  # rate-limited: answered from an old cache
+                provider_failures.append(f"{k}:stale_cache")
     if isinstance(res, dict) and res.get("errors"):
         provider_failures.append("football_data_uk:results")
     return {

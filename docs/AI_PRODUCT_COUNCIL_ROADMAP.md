@@ -159,3 +159,11 @@ Earlier items keep their IDs; the council IDs reference them, so no duplicate is
 | 2026-11-25 18:51 cycle: per-endpoint TheSportsDB cache | IMPLEMENTED | 347 s cold runs; results must stay ≤ 2.5 h |
 | 2026-11-25 18:51 cycle: My view mid-match state, postponed phase, Engine A version, readable quota | IMPLEMENTED | UI agent; matchState unit tests in CI |
 | Promoted-team prior from second-tier data | REJECTED | Powered (n = 490 / 309) but null: ΔLL +0.00005 [−0.00107, +0.00125] |
+| 2026-11-26 00:50 cycle: watchdog "Act on decision" failed on every run since 19:11 (pipefail + empty grep) | IMPLEMENTED | Fixed; tests now execute the step under `bash -e` |
+| 2026-11-26 00:50 cycle: overdue-results fallback (TheSportsDB by-day, ITA2/ENG3/ENG4/SCO1) | IMPLEMENTED | Strict: explicit FT, same league, exact names, creates nothing, stops at 429; dry run 9/18 resolved |
+| 2026-11-26 00:50 cycle: stale-cache answers in `provider_failures` | IMPLEMENTED | 8×429 were invisible in the run report |
+| 2026-11-26 00:50 cycle: UI honesty (legacy €1 stakes, stale live score, forecast at 0 bets, late-results reason) | IMPLEMENTED | UI agent + skeptic |
+| 2026-11-26 00:50 cycle: UCL duplicate fixtures / team identity, Engine B on UCL | DEFERRED | Owner gate: UEFA identity only after a domestic re-backtest |
+| Rest-day adjustment | REJECTED | ΔLL +0.0009 [−0.0003, +0.0020] on 4,881 holdout matches |
+| Pi-ratings + gradient boosting (owner request) | REJECTED | 1X2 LL 1.040 vs A 0.993; pool weight ≈ 0 |
+| Engine A + B log-linear pool, OU2.5 | NOT APPLIED | ΔLL −0.0023 [−0.0035, −0.0012] but changes no bet; owner: keep situation as it is |

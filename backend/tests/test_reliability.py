@@ -674,7 +674,7 @@ def test_successful_manual_recovery_ends_failure_streak():
 def test_watchdog_notification_retries_and_catch_up_first():
     wd = (ROOT / ".github/workflows/watchdog.yml").read_text()
     act = wd.split("name: Act on decision")[1]
-    assert act.index("catch_up[]") < act.index('repos/$GH_REPO/issues" -f title')  # self-healing first
+    assert act.index("catch_up // [])[]") < act.index('repos/$GH_REPO/issues" -f title')  # self-healing first
     assert "open_with_title" in act and "fp_posted" in act and "is_closed" in act  # idempotent retries
     assert 'cu_fail=1' in act and '[ "$cu_fail" = 0 ] || exit 1' in act          # catch-up failures are loud
     assert "set -euo pipefail" not in act
@@ -728,3 +728,215 @@ def test_engine_b_stake_scaled():
     from fil.engine_b.betting import RISK
 
     assert RISK.stake == 10.0 and RISK.initial_bankroll == 500.0 and RISK.max_daily_exposure == 100.0
+
+
+# ------------------------------------------------------------------ the "Act on decision" step, executed for real
+# Council cycle 2026-11-26 00:50: every watchdog run since 2026-11-25 19:11 failed because, under `pipefail`, the
+# fingerprint grep exits 1 when there is no incident body (action "none"). A text check of the step could not see
+# that, so the step is now run with GitHub's own shell (`bash -e`) against a fake `gh`.
+import os
+import shutil
+import subprocess
+
+FAKE_GH = r"""#!/usr/bin/env bash
+echo "$*" >> "$GH_LOG"
+case "$*" in
+  *"--jq [.[] | select"*) echo 0 ;;      # no open incident with this title yet
+  *"--jq .state"*) echo open ;;
+  *"comments?per_page"*) : ;;             # fingerprint not posted yet
+  *) echo '{}' ;;
+esac
+"""
+
+
+def _act_step() -> str:
+    """The `run: |` block of the step (YAML block scalar: every line indented deeper than `run:`)."""
+    lines = (ROOT / ".github/workflows/watchdog.yml").read_text().split("name: Act on decision", 1)[1].splitlines()
+    start = next(i for i, ln in enumerate(lines) if ln.strip() == "run: |")
+    indent = len(lines[start]) - len(lines[start].lstrip())
+    body = []
+    for ln in lines[start + 1:]:
+        if ln.strip() and len(ln) - len(ln.lstrip()) <= indent:
+            break
+        body.append(ln)
+    pad = min(len(ln) - len(ln.lstrip()) for ln in body if ln.strip())
+    return "\n".join(ln[pad:] for ln in body) + "\n"
+
+
+def _run_act(tmp_path, decision: dict) -> tuple[int, list[str], str]:
+    (tmp_path / "bin").mkdir()
+    gh = tmp_path / "bin" / "gh"
+    gh.write_text(FAKE_GH)
+    gh.chmod(0o755)
+    (tmp_path / "decision.json").write_text(json.dumps(decision))
+    (tmp_path / "act.sh").write_text(_act_step())
+    env = {**os.environ, "PATH": f"{tmp_path / 'bin'}:{os.environ['PATH']}", "GH_REPO": "o/r",
+           "GH_LOG": str(tmp_path / "gh.log"), "GITHUB_STEP_SUMMARY": str(tmp_path / "summary.md")}
+    p = subprocess.run(["bash", "-e", str(tmp_path / "act.sh")], cwd=tmp_path, env=env, capture_output=True, text=True,
+                       timeout=60)
+    log = (tmp_path / "gh.log").read_text().splitlines() if (tmp_path / "gh.log").exists() else []
+    return p.returncode, log, p.stdout + p.stderr
+
+
+needs_jq = pytest.mark.skipif(shutil.which("jq") is None, reason="jq not installed")
+
+
+@needs_jq
+def test_act_step_succeeds_when_nothing_to_report(tmp_path):
+    rc, log, out = _run_act(tmp_path, {"status": "DEGRADED", "catch_up": [],
+                                       "decision": {"action": "none", "reason": "no incident"}})
+    assert rc == 0, out
+    assert "no notification needed" in out and log == []
+
+
+@needs_jq
+def test_act_step_missing_catch_up_list_is_harmless(tmp_path):
+    rc, _, out = _run_act(tmp_path, {"status": "HEALTHY", "decision": {"action": "none", "reason": "ok"}})
+    assert rc == 0, out
+
+
+@needs_jq
+def test_act_step_catch_up_then_create_incident(tmp_path):
+    body = "Autopilot failed\n<!-- watchdog-fingerprint: abc123 -->"
+    rc, log, out = _run_act(tmp_path, {"status": "FAILED",
+                                       "catch_up": [{"workflow": "autopilot.yml", "job": "results,fixtures_odds",
+                                                     "reason": "missed slot"}],
+                                       "decision": {"action": "create", "title": "Autopilot incident", "body": body}})
+    assert rc == 0, out
+    runs = [i for i, line in enumerate(log) if line.startswith("workflow run autopilot.yml")]
+    creates = [i for i, line in enumerate(log) if line.startswith("api repos/o/r/issues -f title=")]
+    assert runs and creates and runs[0] < creates[0]          # self-healing before the notification
+    assert len(creates) == 1                                  # exactly one issue
+    assert "Autopilot is FAILED" in out                       # loud in the log
+
+
+@needs_jq
+def test_act_step_close_comments_then_closes(tmp_path):
+    rc, log, out = _run_act(tmp_path, {"status": "HEALTHY", "catch_up": [],
+                                       "decision": {"action": "close", "issue": 21,
+                                                    "body": "recovered <!-- watchdog-fingerprint: def456 -->"}})
+    assert rc == 0, out
+    assert any(line.startswith("api repos/o/r/issues/21/comments -F body=") for line in log)
+    assert any(line.startswith("api -X PATCH repos/o/r/issues/21") for line in log)
+
+
+# ------------------------------------------------------------------ overdue-results fallback (TheSportsDB by day)
+def _ev(home="Cremonese", away="Avellino", hg="0", ag="1", status="FT", league="4394", day="2026-11-25", **kw):
+    return {"idLeague": league, "strStatus": status, "strHomeTeam": home, "strAwayTeam": away,
+            "intHomeScore": hg, "intAwayScore": ag, "dateEvent": day, **kw}
+
+
+FX = [dict(id=7, date="2026-11-25", home_names={"cremonese"}, away_names={"avellino"})]
+
+
+def test_overdue_matching_accepts_only_explicit_full_time_of_this_league():
+    from fil.collect import overdue_events_to_results as m
+
+    assert m([_ev()], "4394", FX) == [(7, 0, 1)]
+    assert m([_ev(league="4328")], "4394", FX) == []            # event from another league
+    for st in ("HT", "2H", "1H", "Live", "AET", "PST", "SUSP", "", "Not Started"):
+        assert m([_ev(status=st)], "4394", FX) == [], st        # never a stuck live score or a postponement
+    assert m([_ev(strPostponed="yes")], "4394", FX) == []
+    assert m([_ev(hg=None)], "4394", FX) == []
+    assert m([_ev(home="Cremonese FC")], "4394", FX) == [(7, 0, 1)]  # only normalisation (FC dropped)
+    assert m([_ev(home="Cremona")], "4394", FX) == []           # no fuzzy matching
+    assert m([_ev(day="2026-11-24")], "4394", FX) == []         # same date only
+    two = FX + [dict(id=8, date="2026-11-25", home_names={"cremonese"}, away_names={"avellino"})]
+    assert m([_ev()], "4394", two) == []                        # ambiguous: no guess
+
+
+def _seed_overdue(ko):
+    from fil.db import Competition, Fixture, Team, session_scope
+    from sqlalchemy import select
+
+    with session_scope() as s:
+        comp = s.scalar(select(Competition).where(Competition.code == "ITA2"))
+        h, a = Team(name="Cremonese", country="Italy"), Team(name="Avellino", country="Italy")
+        s.add_all([h, a]); s.flush()
+        f = Fixture(competition_id=comp.id, season="2026", home_team_id=h.id, away_team_id=a.id, kickoff_utc=ko,
+                    match_date=ko.strftime("%Y-%m-%d"), neutral=False, status="scheduled",
+                    first_seen_source="football_data_uk", external_ids={})
+        s.add(f); s.flush()
+        return f.id
+
+
+def _counts():
+    from fil.db import Fixture, Team, TeamAlias, session_scope
+    from sqlalchemy import func, select
+
+    with session_scope() as s:
+        return tuple(s.scalar(select(func.count(t.id))) for t in (Fixture, Team, TeamAlias))
+
+
+def test_overdue_fallback_records_result_without_creating_anything(db, monkeypatch):
+    from fil import collect
+    from fil.db import Fixture, session_scope
+    from fil.timeutil import utcnow
+
+    ko = utcnow().replace(minute=0, second=0, microsecond=0) - timedelta(hours=6)
+    fid = _seed_overdue(ko)
+    before = _counts()
+    calls = []
+
+    def fake_events(endpoint, params, ttl=None):
+        calls.append((endpoint, params))
+        return ([_ev(day=ko.strftime("%Y-%m-%d")),
+                 _ev(home="Pisa", away="Modena", hg="1", ag="1", day=ko.strftime("%Y-%m-%d"))],  # unknown match
+                "u", utcnow())
+
+    tsdb = collect.provider("thesportsdb")
+    monkeypatch.setattr(tsdb, "_events", fake_events)
+    monkeypatch.setattr(collect, "provider", lambda k: tsdb)
+    out = collect.collect_overdue_results()
+    assert out["asked"] == 1 and out["results_found"] == 1
+    assert calls == [("eventsday.php", {"d": ko.strftime("%Y-%m-%d"), "l": "4394"})]
+    assert _counts() == before                                   # no fixture, team or alias created
+    with session_scope() as s:
+        f = s.get(Fixture, fid)
+        assert (f.status, f.home_goals, f.away_goals) == ("finished", 0, 1)
+        assert f.result_source == "thesportsdb"                  # visibly single-source
+    # a second run asks nothing new for this fixture (it is no longer overdue)
+    assert collect.collect_overdue_results()["pairs"] == 0
+
+
+def test_overdue_fallback_stops_at_first_rate_limit(db, monkeypatch):
+    from fil import collect
+    from fil.providers.base import ProviderError
+    from fil.timeutil import utcnow
+
+    base = utcnow().replace(minute=0, second=0, microsecond=0)
+    for d in (1, 2, 3):
+        from fil.db import Competition, Fixture, Team, session_scope
+        from sqlalchemy import select
+
+        with session_scope() as s:
+            comp = s.scalar(select(Competition).where(Competition.code == "ENG3"))
+            h, a = Team(name=f"H{d}", country="England"), Team(name=f"A{d}", country="England")
+            s.add_all([h, a]); s.flush()
+            ko = base - timedelta(days=d)
+            s.add(Fixture(competition_id=comp.id, season="2026", home_team_id=h.id, away_team_id=a.id, kickoff_utc=ko,
+                          match_date=ko.strftime("%Y-%m-%d"), neutral=False, status="scheduled",
+                          first_seen_source="football_data_uk", external_ids={}))
+    calls = []
+
+    def limited(endpoint, params, ttl=None):
+        calls.append(params["d"])
+        raise ProviderError("rate limited (429) at x")
+
+    tsdb = collect.provider("thesportsdb")
+    monkeypatch.setattr(tsdb, "_events", limited)
+    monkeypatch.setattr(collect, "provider", lambda k: tsdb)
+    out = collect.collect_overdue_results()
+    assert len(calls) == 1 and out["asked"] == 0 and out["errors"]
+    assert calls[0] == (base - timedelta(days=1)).strftime("%Y-%m-%d")   # newest day first
+
+
+def test_overdue_fallback_is_not_a_fixture_source():
+    from fil.catalog import BY_CODE
+    from fil.collect import OVERDUE_TSDB_LEAGUE
+
+    for code in OVERDUE_TSDB_LEAGUE:  # keeps eventsnext/eventspast (fixture discovery) off for these leagues
+        assert "tsdb" not in BY_CODE[code]["sources"], code
+    from fil.jobs import _steps_results
+
+    assert [n for n, *_ in _steps_results()][:2] == ["results", "overdue_results"]  # before settle
