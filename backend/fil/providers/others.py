@@ -52,7 +52,9 @@ class TheSportsDB(Provider):
             raise ProviderError(f"malformed JSON from {res.url}: {exc}") from exc
         if not isinstance(data, dict):
             raise ProviderError(f"unexpected payload type from {res.url}")
-        return (data.get("events") or data.get("results") or []), res.url, res.retrieved_at
+        # eventsday/eventsnext/eventspast answer under "events", searchevents.php under "event" (council cycle
+        # 2026-11-26 06:50: every per-fixture search looked empty because only "events" was read)
+        return (data.get("events") or data.get("event") or data.get("results") or []), res.url, res.retrieved_at
 
     def _to_record(self, e: dict, comp_code: str, url: str, ts: datetime) -> MatchRecord | None:
         if (e.get("strSport") or "Soccer") != "Soccer" or not e.get("strHomeTeam"):
