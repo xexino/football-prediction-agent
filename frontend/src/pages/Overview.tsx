@@ -23,7 +23,8 @@ export default function Overview() {
       </div>
       <TodayCard />
       <div className="grid g6" style={{ marginTop: 12 }}>
-        <Stat label="Virtual bankroll" value={eur(b.current_bankroll)} delta={`start ${eur(b.starting_bankroll)} · exposure ${eur(b.pending_exposure)}`} />
+        {/* headline = equity (cash + open stakes), like My view and the chart; cash shown underneath */}
+        <Stat label="Virtual bankroll" value={eur(b.equity ?? b.current_bankroll)} delta={`cash ${eur(b.current_bankroll)} + open ${eur(b.pending_exposure)} · start ${eur(b.starting_bankroll)}`} />
         <Stat label="Net P/L (settled)" value={eur(b.profit, true)} tone={cls(b.profit)} delta={`staked ${eur(b.staked)}`} />
         {/* display only: below MIN_SAMPLE settled bets a percentage is noise (1 bet showed "ROI +333 %") */}
         <Stat label="ROI" value={smallSample(b.settled) ? "—" : spct(b.roi)} tone={smallSample(b.settled) ? undefined : cls(b.roi)} delta={smallSample(b.settled) ? sampleNote(b.settled) : `CLV ${spct(b.avg_clv)}`} />

@@ -18,6 +18,8 @@ USER_AGENT = "FootballIntelligenceLab/1.0 (research simulation; non-commercial)"
 
 CIRCUIT_THRESHOLD = 3      # consecutive failed runs before the provider is skipped
 CIRCUIT_COOLDOWN_H = 6
+RATE_LIMIT_MAX_PAUSE_S = 130  # TheSportsDB locks out ~120 s after a 429
+PROVIDER_DOWN_S = 300  # after a request failed all attempts on 5xx/network errors
 
 
 class ProviderError(Exception):
@@ -65,6 +67,20 @@ class Provider:
     @_last_request.setter
     def _last_request(self, v: float) -> None:
         Provider._RATE.setdefault(self.key, {})["last"] = v
+
+    @property
+    def _down_until(self) -> float:
+        return Provider._RATE.setdefault(self.key, {}).get("down", 0.0)
+
+    @_down_until.setter
+    def _down_until(self, v: float) -> None:
+        Provider._RATE.setdefault(self.key, {})["down"] = v
+
+    def _stale(self, cpath, req, url: str, why: str) -> "FetchResult":
+        self.stale_served = getattr(self, "stale_served", 0) + 1  # reported as DEGRADED, never as a clean success
+        log("WARNING", f"provider.{self.key}", f"serving stale cache for {self.redact(url)}: {why}")
+        return FetchResult(cpath.read_text(encoding="utf-8"), self.redact(str(req.url)),
+                           datetime.fromtimestamp(cpath.stat().st_mtime, timezone.utc).replace(tzinfo=None), from_cache=True)
 
     @property
     def _cooldown_until(self) -> float:
@@ -176,7 +192,16 @@ class Provider:
         if ttl > 0 and cpath.exists() and time.time() - cpath.stat().st_mtime < ttl:
             return FetchResult(cpath.read_text(encoding="utf-8"), self.redact(str(req.url)),
                                datetime.fromtimestamp(cpath.stat().st_mtime, timezone.utc).replace(tzinfo=None), from_cache=True)
+        # A provider that is down or rate-limited is not hammered: council cycle 2026-11-26 18:50 measured
+        # 16 x HTTP 522 retried URL after URL (6.5 min) and a fixed ~120 s 429 lock-out probed three times.
+        # While blocked, an URL we already have is answered from the (stale, reported) cache at once.
+        blocked = max(self._down_until, self._cooldown_until) - time.time()
+        if blocked > 0 and cpath.exists():
+            return self._stale(cpath, req, url, "provider down or rate-limited — request skipped")
+        if self._down_until > time.time():
+            raise ProviderError(f"{self.key} marked down after repeated server/network errors; request skipped")
         last_exc: Exception | None = None
+        transient = False  # last failure was a 5xx / network error (not a 429)
         for attempt in range(retries):
             wait = max(self.min_interval_s - (time.time() - self._last_request),
                        self._cooldown_until - time.time())
@@ -192,20 +217,18 @@ class Provider:
                         retry_after = float(r.headers.get("Retry-After", "0") or 0)
                     except ValueError:  # an HTTP-date Retry-After: use our own back-off
                         retry_after = 0.0
-                    pause = min(max(retry_after, 2 ** attempt * 5), 30)
-                    last_exc = ProviderError(f"rate limited (429) at {self.redact(str(r.url))}")
-                    if attempt == retries - 1:
-                        # no pointless sleep after the final attempt; the NEXT request of this provider still waits
-                        # out the cool-down (council cycle 2026-11-26 12:50: ~30 s lost per 429 episode)
-                        self._cooldown_until = time.time() + pause
-                        break
-                    time.sleep(pause)
-                    continue
+                    # the lock-out is ~120 s (Retry-After counts down from it); never probe it repeatedly
+                    self._cooldown_until = time.time() + min(max(retry_after, 2 ** attempt * 5), RATE_LIMIT_MAX_PAUSE_S)
+                    last_exc, transient = ProviderError(f"rate limited (429) at {self.redact(str(r.url))}"), False
+                    if cpath.exists():
+                        break  # an old answer now beats a 2-minute wait
+                    continue  # the next attempt waits out the cool-down (loop top)
                 if r.status_code in (401, 403):
                     raise ProviderError(f"HTTP {r.status_code}: access denied for {self.redact(str(r.url))}")
                 if r.status_code >= 500:
-                    last_exc = ProviderError(f"HTTP {r.status_code} at {self.redact(str(r.url))}")
-                    time.sleep(2 ** attempt)
+                    last_exc, transient = ProviderError(f"HTTP {r.status_code} at {self.redact(str(r.url))}"), True
+                    if attempt < retries - 1:
+                        time.sleep(2 ** attempt)
                     continue
                 if r.status_code >= 400:
                     raise ProviderError(f"HTTP {r.status_code} at {self.redact(str(r.url))}")
@@ -213,11 +236,11 @@ class Provider:
                 cpath.write_text(text, encoding="utf-8")
                 return FetchResult(text, self.redact(str(r.url)), utcnow(), headers=dict(r.headers))
             except httpx.HTTPError as exc:  # network failure: retry, then fall back to stale cache
-                last_exc = exc
-                time.sleep(2 ** attempt)
+                last_exc, transient = exc, True
+                if attempt < retries - 1:
+                    time.sleep(2 ** attempt)
+        if transient:  # all attempts failed on server/network errors: the provider is down for a while
+            self._down_until = time.time() + PROVIDER_DOWN_S
         if cpath.exists():
-            self.stale_served = getattr(self, "stale_served", 0) + 1  # reported as DEGRADED, never as a clean success
-            log("WARNING", f"provider.{self.key}", f"network failure, serving stale cache for {self.redact(url)}: {last_exc}")
-            return FetchResult(cpath.read_text(encoding="utf-8"), self.redact(str(req.url)),
-                               datetime.fromtimestamp(cpath.stat().st_mtime, timezone.utc).replace(tzinfo=None), from_cache=True)
+            return self._stale(cpath, req, url, f"network failure: {last_exc}")
         raise ProviderError(f"request failed after {retries} attempts: {type(last_exc).__name__}: {last_exc}")

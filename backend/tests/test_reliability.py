@@ -1088,43 +1088,79 @@ def test_log_inside_an_open_write_session_does_not_block_and_is_kept(db):
         assert s.scalar(select(SystemLog.id).where(SystemLog.message == "outside any scope")) is not None
 
 
-def test_429_final_attempt_does_not_sleep_but_next_request_cools_down(monkeypatch, tmp_path):
-    import httpx
-
+def _fake_http(monkeypatch, statuses, headers=None):
+    """Patch httpx + clock: each request returns the next status in `statuses`."""
     from fil.providers import base
-    from fil.providers.others import TheSportsDB
 
-    assert TheSportsDB.min_interval_s >= 5.0                      # stays under ~13-14 requests/minute
-    sleeps = []
-    clock = [1000.0]
+    sleeps, clock, seq = [], [1000.0], list(statuses)
     monkeypatch.setattr(base.time, "sleep", lambda x: (sleeps.append(round(x, 1)), clock.__setitem__(0, clock[0] + x)))
     monkeypatch.setattr(base.time, "time", lambda: clock[0])
+    sent = []
 
     class R:
-        status_code, headers, url, content = 429, {}, "https://x/api", b""
+        def __init__(self, code):
+            self.status_code, self.headers, self.url = code, headers or {}, "https://x/api"
+            self.content = b'{"events": []}'
 
     class C:
         def __init__(self, *a, **k): pass
         def __enter__(self): return self
         def __exit__(self, *a): return False
-        def get(self, url, params=None): return R()
+        def get(self, url, params=None):
+            sent.append(url)
+            return R(seq.pop(0) if seq else 200)
 
     monkeypatch.setattr(base.httpx, "Client", C)
-    t = TheSportsDB()
-    t.cache_dir = tmp_path
-    t._last_request = 0.0
+    return sleeps, clock, sent
+
+
+def test_429_with_cache_serves_stale_at_once_and_blocks_further_probes(monkeypatch, tmp_path):
+    from fil.providers.others import TheSportsDB
+
+    assert TheSportsDB.min_interval_s >= 6.5                       # ~9 requests/minute, under the ~10-12 limit
+    sleeps, clock, sent = _fake_http(monkeypatch, [429], {"Retry-After": "120"})
+    t = TheSportsDB(); t.cache_dir = tmp_path
+    import hashlib, httpx as hx
+    key = hashlib.sha1(str(hx.Request("GET", "https://x/a").url).encode()).hexdigest()
+    (tmp_path / key).write_text('{"events": ["old"]}')
+    r = t.get("https://x/a", ttl=0)                                 # ttl 0: the cache is never "fresh" here
+    clock[0] += 5
+    assert r.from_cache and len(sent) == 1 and sleeps == []      # no 30 s probes, old answer immediately
+    assert t._cooldown_until - clock[0] > 100                       # the real ~120 s lock-out is respected
+    r2 = t.get("https://x/a", ttl=0)                                # inside the lock-out: not even one request
+    assert r2.from_cache and len(sent) == 1
+
+
+def test_429_without_cache_waits_the_lockout_once(monkeypatch, tmp_path):
+    from fil.providers.others import TheSportsDB
+
+    sleeps, clock, sent = _fake_http(monkeypatch, [429, 200], {"Retry-After": "120"})
+    t = TheSportsDB(); t.cache_dir = tmp_path
+    r = t.get("https://x/new", ttl=0)
+    assert not r.from_cache and len(sent) == 2 and sleeps and 119 <= max(sleeps) <= 130
+
+
+def test_outage_marks_provider_down_and_skips_further_requests(monkeypatch, tmp_path):
+    from fil.providers.base import ProviderError
+    from fil.providers.others import TheSportsDB
+
+    sleeps, clock, sent = _fake_http(monkeypatch, [522, 522, 522])
+    t = TheSportsDB(); t.cache_dir = tmp_path
     try:
-        t.get("https://x/api", ttl=0, retries=3)
-    except base.ProviderError:
+        t.get("https://x/1", ttl=0)
+    except ProviderError:
         pass
-    assert sleeps == [5.0, 10.0]                                  # back-off after attempts 1 and 2 only, none after 3
-    assert t._cooldown_until > clock[0]                           # ... but the next request will wait it out
-    sleeps.clear()
-    try:
-        t.get("https://x/api2", ttl=0, retries=1)
-    except base.ProviderError:
-        pass
-    assert sleeps and sleeps[0] >= 19.9
+    assert len(sent) == 3 and 4 not in sleeps                      # no sleep after the final attempt
+    n = len(sent)
+    for u in ("https://x/2", "https://x/3", "https://x/4"):       # previously: ~65 s each, URL after URL
+        try:
+            TheSportsDB().get(u, ttl=0)                              # a fresh instance shares the down state
+        except ProviderError as e:
+            assert "marked down" in str(e)
+    assert len(sent) == n                                           # nothing sent while down
+    clock[0] += 301
+    TheSportsDB().get("https://x/5", ttl=0)                         # after 5 min it is tried again
+    assert len(sent) == n + 1
 
 
 def _drive_dispatcher(monkeypatch, start, minutes, runs):

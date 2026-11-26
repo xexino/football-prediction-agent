@@ -76,3 +76,13 @@ def synthetic_league(n_teams=16, seasons=3, seed=7, comp="ENG1", end=None, with_
                                     odds=odds, retrieved_at=d, source_url="synthetic://test"))
         d += timedelta(days=7)
     return recs, att, dfn
+
+
+@pytest.fixture(autouse=True)
+def _reset_provider_rate_state():
+    """Provider rate/down state is shared per provider key (class level); tests must not leak it."""
+    from fil.providers.base import Provider
+
+    Provider._RATE.clear()
+    yield
+    Provider._RATE.clear()

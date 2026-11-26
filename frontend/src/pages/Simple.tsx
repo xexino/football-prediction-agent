@@ -1,7 +1,7 @@
 import { Link } from "react-router-dom";
 import { useApi } from "../hooks";
 import { matchState } from "../lib/matchState";
-import { liveScoreText } from "../lib/honesty";
+import { keepOnToday, liveScoreText } from "../lib/honesty";
 
 /** "My view": the whole lab in plain language, for someone who does not want tables and log loss. */
 
@@ -80,7 +80,7 @@ export default function Simple() {
   const { data: ov } = useApi<any>("overview", 300000);
 
   const today = romeDay(new Date());
-  const todays = (ins?.items || []).filter((i: any) => romeDay(new Date(i.kickoff_utc)) === today && (i.engine_a || i.engine_b))
+  const todays = (ins?.items || []).filter((i: any) => keepOnToday(romeDay(new Date(i.kickoff_utc)) === today, i.kickoff_utc, i.score) && (i.engine_a || i.engine_b))
     .sort((a: any, b: any) => a.kickoff_utc.localeCompare(b.kickoff_utc));
 
   // track record on finished matches the model predicted before kickoff (original prediction)
