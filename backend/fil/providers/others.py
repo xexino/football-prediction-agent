@@ -45,6 +45,7 @@ class TheSportsDB(Provider):
 
     def _events(self, endpoint: str, params: dict, ttl: int | None = None) -> tuple[list, str, datetime]:
         res = self.get(f"{self.base_url}/{settings.thesportsdb_key}/{endpoint}", params=params, ttl=ttl)
+        self.last_from_cache = res.from_cache  # budgeted callers count network requests only
         try:
             data = json.loads(res.text or "{}")
         except ValueError as exc:

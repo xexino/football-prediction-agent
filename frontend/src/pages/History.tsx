@@ -1,6 +1,7 @@
 import { useMemo, useState } from "react";
 import { useApi } from "../hooks";
 import { Card, Loading, Status, cls, eur, num, romeTime, selLabel, spct } from "../ui";
+import { statusNow } from "../ui";
 import { legacyStake } from "../lib/honesty";
 
 export default function History() {
@@ -42,9 +43,11 @@ export default function History() {
                 <td className="num">{spct(b.ev)}</td><td><Status s={b.status} /></td><td className="mono">{b.fixture.score || "—"}</td>
                 <td className={`num ${cls(b.profit)}`}>{b.profit === null ? "—" : eur(b.profit, true)}</td>
                 <td className="num">{num(b.closing_price)}</td><td className={`num ${cls(b.clv)}`}>{spct(b.clv)}</td>
-                <td className="num">{eur(b.bankroll_before)} → {eur(b.bankroll_after_settlement ?? b.bankroll_after_stake)}</td>
+                <td className="num">{legacyStake(b.created_at)
+                  ? <span className="muted" title={`Placed under the old €100 bankroll: ${eur(b.bankroll_before)} → ${eur(b.bankroll_after_settlement ?? b.bankroll_after_stake)} (the €400 top-up to €500 came later, 25 Nov 21:21 UTC)`}>legacy (€100 bankroll)</span>
+                  : <>{eur(b.bankroll_before)} → {eur(b.bankroll_after_settlement ?? b.bankroll_after_stake)}</>}</td>
                 <td className="num">{num(b.data_quality, 0)}</td>
-                <td className="muted" style={{ fontSize: 11 }}>{b.reason && <div>{b.reason}</div>}{b.settlement ? `${b.settlement.source}: ${b.settlement.rule}` : b.fixture.result_conflict ? "RESULT CONFLICT — held pending" : new Date(b.fixture.kickoff_utc).getTime() > Date.now() ? "scheduled — not played yet" : "awaiting verified result"}</td>
+                <td className="muted" style={{ fontSize: 11 }}>{b.reason && <div>{b.reason}</div>}{b.settlement ? `${b.settlement.source}: ${b.settlement.rule}` : b.fixture.result_conflict ? "RESULT CONFLICT — held pending" : new Date(b.fixture.kickoff_utc).getTime() > Date.now() ? "scheduled — not played yet" : statusNow({ kickoff_utc: b.fixture.kickoff_utc, status: b.fixture.status }) === "in play" ? "in play" : "awaiting verified result"}</td>
               </tr>))}</tbody>
           </table>
           {rows.length === 0 && <div className="empty">No bets match the filters.</div>}

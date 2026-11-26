@@ -48,6 +48,7 @@ def _steps_daily():
         ("results", lambda: collect.collect_history(full=False), False),
         ("fixtures", collect.collect_fixtures, False),
         ("international", collect.collect_international, False),
+        ("overdue_results", collect.collect_overdue_results, False),  # after fixtures: TheSportsDB is warm
         ("fdorg_full", lambda: collect.collect_fdorg("full"), False),
         ("fdorg_backfill", lambda: collect.collect_fdorg("backfill"), False),
         ("settle", settle_pending, True),

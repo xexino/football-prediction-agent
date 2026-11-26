@@ -17,3 +17,9 @@ export function liveScoreText(score: string, ageMin: number): string {
     ? `${score} (delayed score, ${ageMin} min old)`
     : `last score seen ${score}, ${ageMin} min ago (no newer update yet)`;
 }
+
+/** Below this many settled bets, ROI and win rate are not shown as headline percentages. */
+export const MIN_SAMPLE = 20;
+export const smallSample = (settled: number | null | undefined) => (settled ?? 0) < MIN_SAMPLE;
+export const sampleNote = (settled: number | null | undefined) =>
+  `${settled ?? 0} settled bet${settled === 1 ? "" : "s"}: not meaningful yet (needs ${MIN_SAMPLE}+)`;
