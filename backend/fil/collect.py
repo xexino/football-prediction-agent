@@ -291,7 +291,7 @@ def _store_standings(fd_code: str, rows: list[dict], season: str, ts) -> int:
 OVERDUE_TSDB_LEAGUE = {"ITA2": "4394", "ENG3": "4396", "ENG4": "4397", "SCO1": "4330",
                        # UEFA club competitions (council cycle 2026-11-27 00:50): TheSportsDB is their only result source
                        # and its past-events list returns ~1 result per round, so 6 of 6 games of 26 Nov never resolved
-                       "UEL": "4481", "UECL": "5071"}
+                       "UEL": BY_CODE["UEL"]["sources"]["tsdb"], "UECL": BY_CODE["UECL"]["sources"]["tsdb"]}
 OVERDUE_MAX_CALLS = 8  # day lists + per-fixture searches together, per run
 DAY_LIST_TTL = 12 * 3600
 SEARCH_TTL = 3 * 3600
@@ -369,6 +369,16 @@ def collect_overdue_results(now: datetime | None = None) -> dict:
             Fixture.competition_id.in_(list(codes) or [-1]), Fixture.status == "scheduled",
             Fixture.home_goals.is_(None), Fixture.kickoff_utc < now - OVERDUE_AFTER,
             Fixture.kickoff_utc > now - OVERDUE_LOOKBACK)).all()
+        # never give a result to the leftover copy of a duplicated match (its twin, under other team ids, is already
+        # finished): the match would count twice in both engines' history (council cycle 2026-11-27 00:50 skeptic)
+        def _twin_finished(f) -> bool:
+            return s.scalar(select(Fixture.id).where(
+                Fixture.competition_id == f.competition_id, Fixture.id != f.id, Fixture.status == "finished",
+                Fixture.kickoff_utc.between(f.kickoff_utc - timedelta(days=2), f.kickoff_utc + timedelta(days=2)),
+                (Fixture.home_team_id == f.home_team_id) | (Fixture.away_team_id == f.away_team_id)
+                | (Fixture.home_team_id == f.away_team_id) | (Fixture.away_team_id == f.home_team_id)).limit(1)) is not None
+
+        fx = [f for f in fx if not _twin_finished(f)]
         bet_fx = set(s.scalars(select(VirtualBet.fixture_id).where(
             VirtualBet.fixture_id.in_([f.id for f in fx] or [-1]), VirtualBet.status == "pending")))
         team_ids = {t for f in fx for t in (f.home_team_id, f.away_team_id)}

@@ -58,7 +58,7 @@ export default function InsightDetail() {
               <Tri p={p.markets["1X2"]} labels={[f.home, "Draw", f.away]} />
               <div className="ai-stats mono" style={{ marginTop: 10 }}>
                 <span>xG {num(p.markets.EXPECTED_GOALS.home, 2)} – {num(p.markets.EXPECTED_GOALS.away, 2)} (total {num(p.markets.EXPECTED_GOALS.total, 2)})</span>
-                <span>confidence {num(p.confidence, 0)}/100</span>{p.cross_league_low_confidence && <span className="warn" title="Engine B compares ratings from different leagues here, and at least one team has no domestic-league history in its data. Treat this prediction as low confidence.">cross-league rating · low confidence</span>}<span>data quality {num(p.data_quality, 0)}/100</span>
+                <span>confidence {num(p.confidence, 0)}/100</span>{p.cross_league_low_confidence && <span className="warn" title="Engine B compares ratings from different leagues here, and at least one team may lack domestic-league history in its data. Treat this prediction as low confidence.">cross-league rating · low confidence</span>}<span>data quality {num(p.data_quality, 0)}/100</span>
               </div>
               <p className="muted" style={{ fontSize: 11 }}>Predicted {romeTime(p.created_at)} · revision {p.revision} · training data up to {romeTime(p.data_cutoff)}. Probabilities, not certainties.</p>
             </Card>

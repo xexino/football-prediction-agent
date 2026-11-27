@@ -1291,3 +1291,30 @@ def test_engine_b_cross_league_flag_is_display_only():
         a = design(row, "goals", side)
         b = design({**row, "n_dom_home": 0, "n_dom_away": 99}, "goals", side)
         assert (a is None and b is None) or np.array_equal(a, b)
+
+
+
+def test_overdue_fallback_skips_leftover_duplicate_of_a_finished_match(db, monkeypatch):
+    from fil import collect
+    from fil.db import Competition, Fixture, Team, session_scope
+    from fil.timeutil import utcnow
+    from sqlalchemy import select
+
+    ko = utcnow().replace(minute=0, second=0, microsecond=0) - timedelta(hours=6)
+    with session_scope() as s:
+        comp = s.scalar(select(Competition).where(Competition.code == "UEL"))
+        h, a, a2 = Team(name="Torreense", country="Europe"), Team(name="Celtic", country="Europe"), Team(name="Celtic FC", country="Europe")
+        s.add_all([h, a, a2]); s.flush()
+        s.add(Fixture(competition_id=comp.id, season="2026", home_team_id=h.id, away_team_id=a.id, kickoff_utc=ko,
+                      match_date=ko.strftime("%Y-%m-%d"), neutral=False, status="finished", home_goals=1, away_goals=2,
+                      first_seen_source="thesportsdb", external_ids={}))
+        dup = Fixture(competition_id=comp.id, season="2026", home_team_id=h.id, away_team_id=a2.id, kickoff_utc=ko,
+                      match_date=ko.strftime("%Y-%m-%d"), neutral=False, status="scheduled",
+                      first_seen_source="thesportsdb", external_ids={})
+        s.add(dup); s.flush()
+    calls = []
+    tsdb = collect.provider("thesportsdb")
+    monkeypatch.setattr(tsdb, "_events", lambda *a, **k: calls.append(a) or ([], "u", utcnow()))
+    monkeypatch.setattr(collect, "provider", lambda k: tsdb)
+    out = collect.collect_overdue_results()
+    assert out["overdue_fixtures"] == 0 and calls == []          # the leftover copy is never asked for or filled
