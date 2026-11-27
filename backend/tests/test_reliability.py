@@ -505,6 +505,7 @@ def test_overdue_results_are_not_healthy(db):
 
     with session_scope() as s:
         comp = s.scalars(select(Competition)).first()
+        comp.eligible = True                      # a competition we predict: its late results must raise the alarm
         a, b = Team(name="Alpha FC", country=comp.country), Team(name="Beta FC", country=comp.country)
         s.add_all([a, b]); s.flush()
         for h in (5, 40, 41, 42, 43, 44):
@@ -1318,3 +1319,75 @@ def test_overdue_fallback_skips_leftover_duplicate_of_a_finished_match(db, monke
     monkeypatch.setattr(collect, "provider", lambda k: tsdb)
     out = collect.collect_overdue_results()
     assert out["overdue_fixtures"] == 0 and calls == []          # the leftover copy is never asked for or filled
+
+
+
+def _seed_overdue_in(code, hours, eligible):
+    from datetime import timedelta as td
+
+    from fil.db import Competition, Fixture, Team, session_scope
+    from fil.timeutil import utcnow
+    from sqlalchemy import select
+
+    with session_scope() as s:
+        comp = s.scalar(select(Competition).where(Competition.code == code))
+        comp.eligible = eligible
+        for h in hours:                                     # one pair per fixture (unique per match day)
+            a, b = Team(name=f"{code} A{h}", country=comp.country), Team(name=f"{code} B{h}", country=comp.country)
+            s.add_all([a, b]); s.flush()
+            ko = utcnow() - td(hours=h)
+            s.add(Fixture(competition_id=comp.id, home_team_id=a.id, away_team_id=b.id, kickoff_utc=ko,
+                          match_date=str(ko.date()), status="scheduled", first_seen_source="thesportsdb"))
+
+
+def test_unmonitored_backlog_does_not_raise_the_stale_alarm_but_stays_visible(db):
+    from fil import health
+
+    _seed_overdue_in("EGY1", (40, 41, 42, 43, 44, 45), eligible=False)   # no prediction, no bet, not eligible
+    r = health.compute(include_db_check=False)["components"]["results"]
+    assert r["state"] == "HEALTHY" and r["overdue"] == 0
+    assert r["unmonitored_backlog"] == {"EGY1": 6} and "unmonitored backlog" in r["detail"]
+    _seed_overdue_in("JPN1", (40, 41, 42, 43, 44), eligible=True)       # a predicted league still raises it
+    r = health.compute(include_db_check=False)["components"]["results"]
+    assert r["state"] == "STALE" and r["overdue_24h"] == 5
+
+
+def test_odds_without_coverage_is_degraded_not_unknown(db):
+    from datetime import timedelta as td
+
+    from fil import health
+    from fil.db import Competition, Fixture, Team, session_scope
+    from fil.timeutil import utcnow
+    from sqlalchemy import select
+
+    with session_scope() as s:
+        comp = s.scalar(select(Competition).where(Competition.code == "ENG1"))
+        a, b = Team(name="Up A", country="England"), Team(name="Up B", country="England")
+        s.add_all([a, b]); s.flush()
+        ko = utcnow() + td(days=1)
+        s.add(Fixture(competition_id=comp.id, home_team_id=a.id, away_team_id=b.id, kickoff_utc=ko,
+                      match_date=str(ko.date()), status="scheduled", first_seen_source="football_data_uk"))
+    o = health.compute(include_db_check=False)["components"]["odds"]
+    assert o["state"] == "DEGRADED" and o["detail"].startswith("0 of 1 upcoming fixtures have pre-match odds")
+
+
+def test_live_is_idle_not_degraded_when_nothing_is_in_play(db):
+    from datetime import timedelta as td
+
+    from fil import health
+    from fil.db import Competition, EBLiveSnapshot, Fixture, Team, session_scope
+    from fil.timeutil import utcnow
+    from sqlalchemy import select
+
+    with session_scope() as s:
+        comp = s.scalar(select(Competition).where(Competition.code == "ENG1"))
+        a, b = Team(name="L A", country="England"), Team(name="L B", country="England")
+        s.add_all([a, b]); s.flush()
+        ko = utcnow() - td(hours=10)
+        f = Fixture(competition_id=comp.id, home_team_id=a.id, away_team_id=b.id, kickoff_utc=ko, match_date=str(ko.date()),
+                    status="finished", home_goals=1, away_goals=0, first_seen_source="football_data_uk")
+        s.add(f); s.flush()
+        s.add(EBLiveSnapshot(fixture_id=f.id, created_at=utcnow() - td(hours=8), provider="x", provider_event_id="1",
+                             status="finished", minute_source="provider", data_label="DELAYED", input_hash="t"))
+    lv = health.compute(include_db_check=False)["components"]["live"]
+    assert lv["state"] == "HEALTHY" and lv["idle"] is True and lv["detail"].startswith("idle")
