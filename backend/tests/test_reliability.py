@@ -1391,3 +1391,53 @@ def test_live_is_idle_not_degraded_when_nothing_is_in_play(db):
                              status="finished", minute_source="provider", data_label="DELAYED", input_hash="t"))
     lv = health.compute(include_db_check=False)["components"]["live"]
     assert lv["state"] == "HEALTHY" and lv["idle"] is True and lv["detail"].startswith("idle")
+
+
+
+def test_health_counter_cases(db, monkeypatch):
+    """Skeptic counter-tests: a predicted fixture in a non-eligible league still counts; a covered match in play with
+    an old snapshot is DEGRADED during polling hours; one upcoming fixture with odds is not a coverage gap."""
+    from datetime import datetime as dt, timedelta as td
+
+    from fil import health
+    from fil.db import (Competition, EBLiveSnapshot, Fixture, OddsObservation, Prediction, Team, session_scope)
+    from fil.timeutil import utcnow
+    from sqlalchemy import select
+
+    _seed_overdue_in("EGY1", (40, 41, 42, 43, 44), eligible=False)
+    pcols = {c.name for c in Prediction.__table__.columns}
+    import sqlite3
+    with session_scope() as s:
+        ids = [f.id for f in s.scalars(select(Fixture))]
+    con = sqlite3.connect(db); con.execute("PRAGMA foreign_keys=OFF")
+    req = [r[1] for r in con.execute("PRAGMA table_info(predictions)") if r[3] and r[1] != "id"]
+    for fid in ids:  # a minimal prediction row per fixture (only NOT NULL columns)
+        vals = {c: (fid if c == "fixture_id" else "2026-01-01 00:00:00" if c.endswith("_at") or c.endswith("_utc")
+                    else "{}" if c in ("probs", "inputs", "features", "markets") else 0 if c != "decision" else "NO_BET")
+                for c in req}
+        con.execute(f"INSERT INTO predictions ({','.join(vals)}) VALUES ({','.join('?' * len(vals))})", list(vals.values()))
+    con.commit(); con.close()
+    r = health.compute(include_db_check=False)["components"]["results"]
+    assert r["overdue"] == 5 and r["state"] == "STALE" and r["unmonitored_backlog"] == {}   # watched → counted
+
+    # live: an ENG1 match 30 min in, snapshot 8 h old, at 15:00 UTC → DEGRADED (not idle)
+    noon = utcnow().replace(hour=15, minute=0, second=0, microsecond=0)
+    monkeypatch.setattr(health, "utcnow", lambda: noon)
+    with session_scope() as s:
+        comp = s.scalar(select(Competition).where(Competition.code == "ENG1"))
+        a, b = Team(name="P A", country="England"), Team(name="P B", country="England")
+        s.add_all([a, b]); s.flush()
+        f = Fixture(competition_id=comp.id, home_team_id=a.id, away_team_id=b.id, kickoff_utc=noon - td(minutes=30),
+                    match_date=str(noon.date()), status="scheduled", first_seen_source="football_data_uk")
+        up = Fixture(competition_id=comp.id, home_team_id=b.id, away_team_id=a.id, kickoff_utc=noon + td(days=1),
+                     match_date=str((noon + td(days=1)).date()), status="scheduled", first_seen_source="football_data_uk")
+        s.add_all([f, up]); s.flush()
+        s.add(EBLiveSnapshot(fixture_id=f.id, created_at=noon - td(hours=8), provider="x", provider_event_id="1",
+                             status="live", minute_source="provider", data_label="DELAYED", input_hash="t"))
+        ocols = {c.name for c in OddsObservation.__table__.columns}
+        s.add(OddsObservation(**{k: v for k, v in dict(fixture_id=up.id, source="football_data_uk", bookmaker="B365",
+                                                      kind="pre_match", retrieved_at=noon - td(hours=2), is_current=True,
+                                                      content_hash="h", home=2.0, draw=3.4, away=3.9).items() if k in ocols}))
+    comps = health.compute(include_db_check=False)["components"]
+    assert comps["live"]["state"] == "DEGRADED" and comps["live"]["idle"] is False
+    assert comps["odds"]["state"] == "HEALTHY"                                                  # not a coverage gap

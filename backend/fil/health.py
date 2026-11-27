@@ -91,8 +91,7 @@ def compute(now: datetime | None = None, include_db_check: bool = True) -> dict:
             comps["odds"] = {"state": "DEGRADED", "age_h": None, "last": iso(last_feed), "with_odds": 0, "upcoming_7d": n_up,
                              "detail": f"0 of {n_up} upcoming fixtures have pre-match odds (last odds feed "
                                        f"{iso(last_feed) or 'never'}); no virtual bets are possible until odds arrive"}
-        upcoming = s.scalar(select(func.count(Fixture.id)).where(Fixture.status == "scheduled", Fixture.kickoff_utc > now,
-                                                              Fixture.kickoff_utc < now + timedelta(days=7)))
+        upcoming = n_up
         newest_result = s.scalar(select(func.max(Fixture.kickoff_utc)).where(Fixture.status == "finished",
                                                                          Fixture.first_seen_source == "football_data_uk"))
         comps["fixtures"] = {"state": "HEALTHY" if upcoming else "DEGRADED", "upcoming_7d": upcoming,
@@ -153,9 +152,11 @@ def compute(now: datetime | None = None, include_db_check: bool = True) -> dict:
         # a stale live feed only matters while a match it covers could be in play (live polling: football-data.org
         # competitions, 11-23 UTC). Otherwise it is idle, not degraded (it was DEGRADED every night by design).
         live_comp_ids = [c.id for c in s.scalars(select(Competition)) if "fdorg" in (c.sources or {})] or [-1]
-        in_play = s.scalar(select(func.count(Fixture.id)).where(
+        polling = 11 <= now.hour <= 23  # live slots "7,27,47 11-23 * * *" (ops/schedule.py): outside them, idle by design
+        in_play = polling and s.scalar(select(func.count(Fixture.id)).where(
             Fixture.competition_id.in_(live_comp_ids), Fixture.kickoff_utc <= now,
-            Fixture.kickoff_utc > now - timedelta(hours=2, minutes=30)))
+            Fixture.kickoff_utc > now - timedelta(hours=2, minutes=30),
+            Fixture.status.notin_(("postponed", "cancelled", "abandoned")))) > 0
         live_fresh = newest_live is not None and now - newest_live < timedelta(minutes=45)
         comps["live"] = {"state": "UNKNOWN" if newest_live is None else
                          ("HEALTHY" if live_fresh or not in_play else "DEGRADED"), "idle": not live_fresh and not in_play,
