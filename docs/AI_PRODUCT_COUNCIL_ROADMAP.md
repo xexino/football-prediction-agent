@@ -192,3 +192,7 @@ Earlier items keep their IDs; the council IDs reference them, so no duplicate is
 | 2026-11-26 18:50 cycle: provider outage/lock-out handling | VERIFIED | 0 × 429 / 0 × 5xx since; fixtures step ~150 s = spacing |
 | 2026-11-26 12:50 cycle: log() buffering | VERIFIED | First `collect` row persisted (bet #1 settlement) |
 | UEFA→domestic id mapping walk-forward (Engine B) | NO-GO (for now) | Underpowered; needs a curated alias table ≥ 80 % coverage |
+| 2026-11-27 06:50 cycle: honest health (odds coverage gap DEGRADED with count; live idle; unmonitored backlog out of the stale alarm) | IMPLEMENTED | UNKNOWN odds while 0/91 weekend fixtures had odds; live DEGRADED every night; EGY1/RSA1 noise |
+| Weekend odds gap (football-data.co.uk not yet published; no Odds API key) | RECORDED | No paid service or new account without the owner; no bets possible until odds arrive |
+| 2026-11-27 00:50 cycle items (UEFA fallback results, small-sample guard, bet notes, 404, low-conf. pills) | VERIFIED | 10/10 results web-verified; UI agent live checks |
+| Live comparison with CIs and naive baseline on the site | PROPOSED | Models agent; next cycle |
