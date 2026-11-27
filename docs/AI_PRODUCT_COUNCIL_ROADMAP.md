@@ -196,3 +196,8 @@ Earlier items keep their IDs; the council IDs reference them, so no duplicate is
 | Weekend odds gap (football-data.co.uk not yet published; no Odds API key) | RECORDED | No paid service or new account without the owner; no bets possible until odds arrive |
 | 2026-11-27 00:50 cycle items (UEFA fallback results, small-sample guard, bet notes, 404, low-conf. pills) | VERIFIED | 10/10 results web-verified; UI agent live checks |
 | Live comparison with CIs and naive baseline on the site | PROPOSED | Models agent; next cycle |
+| 2026-11-27 18:50 cycle: AH reference price now checked with plausible() (integrity bug: bet #3 used an 8.71 % BFE row) | IMPLEMENTED | Same clean-reference rule as every other Engine A market; bet #3 stays (immutable) |
+| 2026-11-27 18:50 cycle: money display (equity headlines, open bets on forecast card, −€, AH away reason line) | IMPLEMENTED | First €10 bets exposed them |
+| Engine B OU bets: model 13–18 pp above market, negative EV at the clean price; B's own ref rule allows BFE ≤ 15 % | RECORDED FOR OWNER | Betting rules frozen; CFO paused; no change |
+| 2026-11-27 06:50 cycle honest health | VERIFIED | Live: odds HEALTHY, live idle, backlog listed |
+| 12:50 cycle | MISSED | Session worker restart; covered by the 18:50 cycle |
