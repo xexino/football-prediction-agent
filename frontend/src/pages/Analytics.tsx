@@ -43,7 +43,7 @@ export default function Analytics() {
     <>
       <div className="topbar"><div><h1>Analytics</h1><div className="sub">Live simulated performance + walk-forward backtest ({B ? `${B.start.slice(0, 10)} → ${B.end.slice(0, 10)}` : "not run yet"})</div></div></div>
       <div className="grid g6">
-        <Stat label="Bankroll" value={eur(L.current_bankroll)} delta={`equity ${eur(L.equity)}`} />
+        <Stat label="Bankroll" value={eur(L.equity ?? L.current_bankroll)} delta={`cash ${eur(L.current_bankroll)} + open ${eur(L.pending_exposure ?? 0)}`} />
         <Stat label="Net P/L" value={eur(L.profit, true)} tone={cls(L.profit)} />
         {/* display only: below MIN_SAMPLE settled bets a percentage is noise (2 bets showed "ROI +116.5 %") */}
         <Stat label="ROI" value={smallSample(L.settled) ? "—" : spct(L.roi)} tone={smallSample(L.settled) ? undefined : cls(L.roi)} delta={smallSample(L.settled) ? sampleNote(L.settled) : undefined} />
