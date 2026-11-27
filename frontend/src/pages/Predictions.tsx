@@ -6,6 +6,9 @@ import { ValueTable } from "./Upcoming";
 
 export default function Predictions() {
   const { data, error } = useApi<any>("predictions?limit=2000", 120000);
+  const { data: bets } = useApi<any>("bets", 300000);
+  // a bet placed from one prediction stands even when a later/earlier revision says NO BET (display only)
+  const betByFixture = new Map<number, any>(((bets?.items ?? bets) || []).map((b: any) => [b.fixture?.id, b]));
   const [dec, setDec] = useState("");
   const [comp, setComp] = useState("");
   const [q, setQ] = useState("");
@@ -49,7 +52,7 @@ export default function Predictions() {
                   <td><ProbBar p={p.probs["1X2"]} /></td>
                   <td className="num">{num(p.exp_home_goals, 2)}–{num(p.exp_away_goals, 2)}</td>
                   <td className="num">{pct(p.probs.OU25?.over, 0)}</td><td className="num">{pct(p.probs.BTTS?.yes, 0)}</td>
-                  <td className="num">{num(p.confidence, 0)}</td><td><Quality q={p.data_quality} /></td><td><Decision d={p.decision} /></td>
+                  <td className="num">{num(p.confidence, 0)}</td><td><Quality q={p.data_quality} /></td><td><Decision d={p.decision} />{(() => { const b = betByFixture.get(p.fixture?.id); return b && b.prediction_id !== p.id && p.decision !== "VALUE_BET" ? <small className="muted" style={{ display: "block" }}>bet from {p.revision > 0 ? "an earlier" : "another"} prediction stands ({String(b.status).toLowerCase()})</small> : null; })()}</td>
                   <td className="mono">{p.fixture.score || <span className={awaitingResult(p.fixture) ? "warn" : "muted"}>{statusNow(p.fixture)}</span>}</td>
                   <td className="num">{p.eval_brier !== null ? num(p.eval_brier, 3) : "—"}</td>
                 </tr>

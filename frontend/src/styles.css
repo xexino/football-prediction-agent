@@ -57,6 +57,7 @@ td.num, th.num { text-align: right; font-family: var(--mono); white-space: nowra
 .qbar i { display: inline-block; width: 46px; height: 5px; border-radius: 3px; background: #1c2733; overflow: hidden; position: relative; }
 .qbar i b { position: absolute; inset: 0 auto 0 0; border-radius: 3px; }
 .probbar { display: flex; height: 18px; border-radius: 4px; overflow: hidden; font: 600 10px/18px var(--mono); min-width: 150px; }
+.card .tablewrap .probbar, .card table .probbar { min-width: 90px; }  /* Overview cards: no clipped badges at 1280-1366 px */
 .probbar div { text-align: center; color: #06121c; white-space: nowrap; overflow: hidden; }
 .filters { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
 select, input { background: var(--panel2); border: 1px solid var(--border2); color: var(--text); border-radius: 7px; padding: 6px 9px; font: 12px var(--sans); }

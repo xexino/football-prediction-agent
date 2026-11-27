@@ -288,7 +288,10 @@ def _store_standings(fd_code: str, rows: list[dict], season: str, ts) -> int:
 # 2026-11-26 00:50: the Engine A bet on Cremonese–Avellino stayed open for days). Deliberately NOT a catalog
 # `tsdb` source: that would also switch on fixture discovery (more 429s, more chances of duplicate fixtures).
 # ENG5 and JPN1 have no usable free fallback and stay on football-data.co.uk's timing.
-OVERDUE_TSDB_LEAGUE = {"ITA2": "4394", "ENG3": "4396", "ENG4": "4397", "SCO1": "4330"}
+OVERDUE_TSDB_LEAGUE = {"ITA2": "4394", "ENG3": "4396", "ENG4": "4397", "SCO1": "4330",
+                       # UEFA club competitions (council cycle 2026-11-27 00:50): TheSportsDB is their only result source
+                       # and its past-events list returns ~1 result per round, so 6 of 6 games of 26 Nov never resolved
+                       "UEL": "4481", "UECL": "5071"}
 OVERDUE_MAX_CALLS = 8  # day lists + per-fixture searches together, per run
 DAY_LIST_TTL = 12 * 3600
 SEARCH_TTL = 3 * 3600

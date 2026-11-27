@@ -1,6 +1,7 @@
 import { Bar, BarChart, CartesianGrid, Line, LineChart, ReferenceLine, ResponsiveContainer, Scatter, ScatterChart, Tooltip, XAxis, YAxis, ZAxis, Legend, ComposedChart, Area } from "recharts";
 import { useApi } from "../hooks";
 import { Card, Loading, Stat, cls, eur, num, pct, spct, tooltipStyle } from "../ui";
+import { sampleNote, smallSample } from "../lib/honesty";
 
 function PerfTable({ data, label }: { data: Record<string, any>; label: string }) {
   const rows = Object.entries(data || {});
@@ -9,7 +10,7 @@ function PerfTable({ data, label }: { data: Record<string, any>; label: string }
     <table><thead><tr><th>{label}</th><th className="num">Bets</th><th className="num">Settled</th><th className="num">P/L</th><th className="num">ROI</th><th className="num">Win rate</th><th className="num">Avg odds</th><th className="num">CLV</th></tr></thead>
       <tbody>{rows.map(([k, v]) => (
         <tr key={k}><td>{k}</td><td className="num">{v.bets}</td><td className="num">{v.settled ?? v.bets}</td><td className={`num ${cls(v.profit)}`}>{eur(v.profit, true)}</td>
-          <td className={`num ${cls(v.roi)}`}>{spct(v.roi)}</td><td className="num">{pct(v.win_rate)}</td><td className="num">{num(v.avg_odds ?? v.avg_price)}</td><td className={`num ${cls(v.avg_clv)}`}>{spct(v.avg_clv)}</td></tr>))}</tbody></table>
+          <td className={`num ${smallSample(v.settled ?? v.bets) ? "" : cls(v.roi)}`}>{smallSample(v.settled ?? v.bets) ? "—" : spct(v.roi)}</td><td className="num">{smallSample(v.settled ?? v.bets) ? "—" : pct(v.win_rate)}</td><td className="num">{num(v.avg_odds ?? v.avg_price)}</td><td className={`num ${cls(v.avg_clv)}`}>{spct(v.avg_clv)}</td></tr>))}</tbody></table>
   );
 }
 
@@ -44,8 +45,9 @@ export default function Analytics() {
       <div className="grid g6">
         <Stat label="Bankroll" value={eur(L.current_bankroll)} delta={`equity ${eur(L.equity)}`} />
         <Stat label="Net P/L" value={eur(L.profit, true)} tone={cls(L.profit)} />
-        <Stat label="ROI" value={spct(L.roi)} tone={cls(L.roi)} />
-        <Stat label="Win rate" value={pct(L.win_rate)} delta={`${L.settled} settled`} />
+        {/* display only: below MIN_SAMPLE settled bets a percentage is noise (2 bets showed "ROI +116.5 %") */}
+        <Stat label="ROI" value={smallSample(L.settled) ? "—" : spct(L.roi)} tone={smallSample(L.settled) ? undefined : cls(L.roi)} delta={smallSample(L.settled) ? sampleNote(L.settled) : undefined} />
+        <Stat label="Win rate" value={smallSample(L.settled) ? "—" : pct(L.win_rate)} delta={`${L.settled} settled`} />
         <Stat label="Max drawdown" value={eur(L.max_drawdown)} />
         <Stat label="Live Brier / log loss" value={num(L.prediction_metrics.brier, 3)} delta={`log loss ${num(L.prediction_metrics.log_loss, 3)} · n=${L.prediction_metrics.evaluated}`} />
       </div>
