@@ -935,8 +935,9 @@ def test_overdue_fallback_is_not_a_fixture_source():
     from fil.catalog import BY_CODE
     from fil.collect import OVERDUE_TSDB_LEAGUE
 
-    for code in OVERDUE_TSDB_LEAGUE:  # keeps eventsnext/eventspast (fixture discovery) off for these leagues
+    for code in ("ITA2", "ENG3", "ENG4", "SCO1"):  # football-data.co.uk leagues: fixture discovery stays off
         assert "tsdb" not in BY_CODE[code]["sources"], code
+    assert {"UEL", "UECL"} <= set(OVERDUE_TSDB_LEAGUE)  # TheSportsDB-only UEFA comps: discovery exists already
     from fil.jobs import _steps_results
 
     assert [n for n, *_ in _steps_results()][:2] == ["results", "overdue_results"]  # before settle
@@ -1270,3 +1271,50 @@ def test_project_skills_are_valid_and_contain_nothing_executable():
         if d.name.startswith("ecc-"):
             assert "fil-guardrails" in md                                                 # project rules first
     assert (skills / "ECC-LICENSE.txt").read_text().startswith("MIT License")
+
+
+
+def test_engine_b_cross_league_flag_is_display_only():
+    from fil.api_b import cross_league_low_confidence as flag
+    from fil.engine_b.features import MIN_HISTORY, design
+
+    assert flag("UCL", {"n_dom_home": 120, "n_dom_away": 0})            # one side without domestic history
+    assert flag("UEL", {"n_dom_home": 0, "n_dom_away": 0})
+    assert flag("UECL", None)                                          # stored before the field existed
+    assert not flag("UCL", {"n_dom_home": MIN_HISTORY, "n_dom_away": 140})
+    assert not flag("ENG1", {"n_dom_home": 0, "n_dom_away": 0})         # domestic leagues never flagged
+    # the model ignores the new keys: identical design vectors with and without them
+    row = {"elo_diff": 30.0, "h_goals_att": 0.1, "a_goals_def": -0.05, "a_goals_att": 0.0, "h_goals_def": 0.02,
+           "h_goals_league": 1.4, "a_goals_league": 1.1, "comp": "ENG1", "n_home": 20, "n_away": 20}
+    import numpy as np
+    for side in ("h", "a"):
+        a = design(row, "goals", side)
+        b = design({**row, "n_dom_home": 0, "n_dom_away": 99}, "goals", side)
+        assert (a is None and b is None) or np.array_equal(a, b)
+
+
+
+def test_overdue_fallback_skips_leftover_duplicate_of_a_finished_match(db, monkeypatch):
+    from fil import collect
+    from fil.db import Competition, Fixture, Team, session_scope
+    from fil.timeutil import utcnow
+    from sqlalchemy import select
+
+    ko = utcnow().replace(minute=0, second=0, microsecond=0) - timedelta(hours=6)
+    with session_scope() as s:
+        comp = s.scalar(select(Competition).where(Competition.code == "UEL"))
+        h, a, a2 = Team(name="Torreense", country="Europe"), Team(name="Celtic", country="Europe"), Team(name="Celtic FC", country="Europe")
+        s.add_all([h, a, a2]); s.flush()
+        s.add(Fixture(competition_id=comp.id, season="2026", home_team_id=h.id, away_team_id=a.id, kickoff_utc=ko,
+                      match_date=ko.strftime("%Y-%m-%d"), neutral=False, status="finished", home_goals=1, away_goals=2,
+                      first_seen_source="thesportsdb", external_ids={}))
+        dup = Fixture(competition_id=comp.id, season="2026", home_team_id=h.id, away_team_id=a2.id, kickoff_utc=ko,
+                      match_date=ko.strftime("%Y-%m-%d"), neutral=False, status="scheduled",
+                      first_seen_source="thesportsdb", external_ids={})
+        s.add(dup); s.flush()
+    calls = []
+    tsdb = collect.provider("thesportsdb")
+    monkeypatch.setattr(tsdb, "_events", lambda *a, **k: calls.append(a) or ([], "u", utcnow()))
+    monkeypatch.setattr(collect, "provider", lambda k: tsdb)
+    out = collect.collect_overdue_results()
+    assert out["overdue_fixtures"] == 0 and calls == []          # the leftover copy is never asked for or filled
