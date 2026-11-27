@@ -248,7 +248,10 @@ def _explain(pred, q, conf, assessments, chosen) -> str:
     ]
     if chosen:
         for a in chosen:
-            parts.append(f"VALUE: {a.market} {a.selection}{'' if a.line is None or a.market != 'AH' else f' {a.line:+g}'} @ {a.price:.2f} "
+            # an AH line is stored as the HOME handicap; print the selection's own line ("away +1", not "away -1")
+            own = None if a.line is None or a.market != "AH" else (a.line if a.selection == "home" else -a.line)
+            line_txt = "" if own is None else f" {own:+g}"
+            parts.append(f"VALUE: {a.market} {a.selection}{line_txt} @ {a.price:.2f} "
                          f"({a.bookmaker}) — model {a.model_prob:.1%} vs market {a.market_prob:.1%}, "
                          f"EV {a.ev:+.1%}, conservative EV {a.ev_conservative:+.1%}.")
     else:

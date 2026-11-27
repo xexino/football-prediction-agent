@@ -5,7 +5,7 @@ export const pct = (x: number | null | undefined, d = 1) => (x === null || x ===
 export const spct = (x: number | null | undefined, d = 1) =>
   x === null || x === undefined ? "—" : `${x > 0 ? "+" : ""}${(x * 100).toFixed(d)}%`;
 export const eur = (x: number | null | undefined, signed = false) =>
-  x === null || x === undefined ? "—" : `${signed && x > 0 ? "+" : ""}€${x.toFixed(2)}`;
+  x === null || x === undefined ? "—" : `${x < 0 ? "−" : signed && x > 0 ? "+" : ""}€${Math.abs(x).toFixed(2)}`;
 export const num = (x: number | null | undefined, d = 2) => (x === null || x === undefined ? "—" : x.toFixed(d));
 export const cls = (x: number | null | undefined) => (x === null || x === undefined || x === 0 ? "" : x > 0 ? "pos" : "neg");
 export const ago = (iso?: string | null) => {

@@ -189,7 +189,10 @@ def performance():
         vr = s.scalars(select(EBValidationRun).order_by(EBValidationRun.id.desc())).first()
         n_pred = s.scalar(select(func.count(EBPrediction.id)))
         return {
-            "bankroll": {"start": txs[0].amount if txs else 100.0, "current": txs[-1].balance_after if txs else 100.0,
+            "bankroll": {"start": txs[0].amount if txs else 100.0, "current": txs[-1].balance_after if txs else 500.0,
+                         # capital = initial + top-ups (owner decision 2026-11-25: €500); open = stakes of pending bets
+                         "capital": round(sum(t.amount for t in txs if t.tx_type in ("initial", "top_up")), 2) if txs else 500.0,
+                         "open": round(sum(b.stake for b in bets if b.status == "pending"), 2),
                          "history": [{"t": iso(t.created_at), "balance": t.balance_after, "type": t.tx_type} for t in txs]},
             "overall": _perf(bets), "by_market": group(lambda b: b.market),
             "by_competition": group(lambda b: comps[fx[b.fixture_id].competition_id].code),
