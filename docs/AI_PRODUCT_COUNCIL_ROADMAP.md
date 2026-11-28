@@ -201,5 +201,3 @@ Earlier items keep their IDs; the council IDs reference them, so no duplicate is
 | Engine B OU bets: model 13–18 pp above market, negative EV at the clean price; B's own ref rule allows BFE ≤ 15 % | RECORDED FOR OWNER | Betting rules frozen; CFO paused; no change |
 | 2026-11-27 06:50 cycle honest health | VERIFIED | Live: odds HEALTHY, live idle, backlog listed |
 | 12:50 cycle | MISSED | Session worker restart; covered by the 18:50 cycle |
-| Backtest re-run after the AH reference fix | VERIFIED | 40→38 bets, ROI −29.7 %→−25.9 % (CI incl. 0); the 2 dropped AH bets both lost; 1X2/OU unchanged |
-| 2026-11-28 00:50 cycle: Engine B small-sample guard, − sign in %, stake/return on open bets, Engine A bets on match pages | IMPLEMENTED | UI agent |

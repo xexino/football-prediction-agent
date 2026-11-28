@@ -1,7 +1,6 @@
 import { useParams, Link } from "react-router-dom";
 import { useApi } from "../../hooks";
-import { Card, Loading, eur, num, pct, romeTime, selLabel, Status, statusNow } from "../../ui";
-import { fixAhReason } from "../../lib/honesty";
+import { Card, Loading, num, pct, romeTime, Status, statusNow } from "../../ui";
 import { Coverage, SubNav, Tri, liveLabel } from "./common";
 
 const SECTION_TITLES: Record<string, string> = {
@@ -42,8 +41,6 @@ function MarketRows({ mk }: { mk: any }) {
 export default function InsightDetail() {
   const { id } = useParams();
   const { data, error } = useApi<any>(`insights/${id}`, 60000);
-  const { data: betsA } = useApi<any>("bets?limit=5000", 300000);
-  const aBets = ((betsA?.items ?? []) as any[]).filter((b: any) => b.fixture?.id === Number(id));
   if (!data && error && /404/.test(String(error)))
     return <div className="empty">Match not found — it may be outside the current snapshot. <Link to="/insights">Back to Match Insights</Link></div>;
   if (!data) return <Loading error={error} />;
@@ -111,10 +108,7 @@ export default function InsightDetail() {
           </tbody></table>
           <h3 style={{ marginTop: 10 }}>Engine B virtual selections</h3>
           {data.selections.length ? <table><tbody>{data.selections.map((b: any, i: number) => <tr key={i}><td>{b.market} {b.selection}</td><td className="num">{num(b.price)}</td><td><Status s={b.status} /></td><td className="muted" style={{ fontSize: 11 }}>{b.reason}</td></tr>)}</tbody></table>
-            : <div className="nobet-hero">Engine B: no selection meeting its rules for this match.{aBets.length ? ` Engine A has ${aBets.length} virtual bet${aBets.length === 1 ? "" : "s"} (below).` : ""}</div>}
-          {aBets.length > 0 && <><h3 style={{ marginTop: 10 }}>Engine A virtual bets</h3>
-            <table><tbody>{aBets.map((b: any) => <tr key={b.id}><td>{selLabel(b.market, b.selection, b.line)}</td><td className="num">{num(b.price)}</td><td className="num">{eur(b.stake)}</td><td><Status s={b.status} /></td>
-              <td className="muted" style={{ fontSize: 11 }}>{b.reason ? fixAhReason(b.reason, b.market, b.selection, b.line) : ""}</td></tr>)}</tbody></table></>}
+            : <div className="nobet-hero">NO BET — Engine B found no selection meeting its rules for this match.</div>}
           <p style={{ marginTop: 10 }}><Link to="/insights">← all matches</Link></p>
         </Card>
       </div>

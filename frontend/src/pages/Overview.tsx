@@ -67,10 +67,10 @@ export default function Overview() {
           {data.opportunities.length === 0 ? (
             <div className="nobet-hero">No open bets right now{b.settled ? <> · {b.settled} settled → <Link to="/history">History</Link></> : null}.<br /><span>{hd?.components?.odds?.with_odds === 0 ? "No current bookmaker odds for upcoming matches yet, so no bet can be placed." : "No bet is a valid decision when no price is clearly too generous."}</span></div>
           ) : (
-            <table><thead><tr><th>Match</th><th>Selection</th><th className="num">Odds</th><th className="num">Stake</th><th className="num">Return</th><th className="num">EV</th><th>Kickoff</th></tr></thead>
+            <table><thead><tr><th>Match</th><th>Selection</th><th className="num">Odds</th><th className="num">EV</th><th>Kickoff</th></tr></thead>
               <tbody>{data.opportunities.map((o: any) => (
                 <tr key={o.id}><td className="match">{o.fixture.home} – {o.fixture.away}<small>{o.fixture.competition_name}</small></td>
-                  <td>{selLabel(o.market, o.selection, o.line)}</td><td className="num">{num(o.price)}</td><td className="num">{eur(o.stake)}</td><td className="num">{eur(o.potential_return)}</td><td className="num pos">{spct(o.ev)}</td><td className="mono">{romeTime(o.fixture.kickoff_utc)}</td></tr>))}</tbody></table>
+                  <td>{selLabel(o.market, o.selection, o.line)}</td><td className="num">{num(o.price)}</td><td className="num pos">{spct(o.ev)}</td><td className="mono">{romeTime(o.fixture.kickoff_utc)}</td></tr>))}</tbody></table>
           )}
         </Card>
         <Card title={`Upcoming (${data.upcoming_count} in 7 days · ${data.predicted_count} predicted)`} right={<Link to="/upcoming">all →</Link>}>
