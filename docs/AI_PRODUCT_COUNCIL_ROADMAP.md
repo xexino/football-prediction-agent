@@ -203,4 +203,3 @@ Earlier items keep their IDs; the council IDs reference them, so no duplicate is
 | 12:50 cycle | MISSED | Session worker restart; covered by the 18:50 cycle |
 | Backtest re-run after the AH reference fix | VERIFIED | 40→38 bets, ROI −29.7 %→−25.9 % (CI incl. 0); the 2 dropped AH bets both lost; 1X2/OU unchanged |
 | 2026-11-28 00:50 cycle: Engine B small-sample guard, − sign in %, stake/return on open bets, Engine A bets on match pages | IMPLEMENTED | UI agent |
-| 2026-11-28 06:50 cycle | NO CHANGE | Quiet window: all green, overdue = normal football-data.co.uk lag |
