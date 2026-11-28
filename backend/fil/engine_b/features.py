@@ -31,7 +31,6 @@ def load_history(before: datetime | None = None) -> list[dict]:
     """Finished matches with their football-data.co.uk statistics (None where not provided)."""
     with session_scope() as s:
         comps = {c.id: c.code for c in s.scalars(select(Competition))}
-        kinds = {c.id: c.kind for c in s.scalars(select(Competition))}
         stats = {r.fixture_id: r for r in s.scalars(select(MatchStats).where(MatchStats.source == "football_data_uk"))}
         q = select(Fixture).where(Fixture.status == "finished", Fixture.home_goals.is_not(None))
         if before is not None:
@@ -40,8 +39,7 @@ def load_history(before: datetime | None = None) -> list[dict]:
         for f in s.scalars(q.order_by(Fixture.kickoff_utc, Fixture.id)):
             st = stats.get(f.id)
             g = (lambda a: getattr(st, a) if st is not None else None)
-            rows.append(dict(id=f.id, comp=comps[f.competition_id], dom=kinds[f.competition_id] == "league",
-                             home=f.home_team_id, away=f.away_team_id,
+            rows.append(dict(id=f.id, comp=comps[f.competition_id], home=f.home_team_id, away=f.away_team_id,
                              kickoff=f.kickoff_utc, neutral=f.neutral,
                              h_goals=f.home_goals, a_goals=f.away_goals,
                              h_sot=g("home_sot"), a_sot=g("away_sot"), h_corners=g("home_corners"), a_corners=g("away_corners"),
@@ -54,7 +52,6 @@ def load_history(before: datetime | None = None) -> list[dict]:
 @dataclass
 class TeamState:
     n: int = 0
-    n_dom: int = 0  # domestic-league matches only (display-only: the "cross-league rating" warning, never the model)
     ew: dict = field(default_factory=dict)        # metric_for / metric_against -> ewma
     n_metric: dict = field(default_factory=lambda: defaultdict(int))
     venue_goals: dict = field(default_factory=dict)  # "H_for", "H_against", "A_for", "A_against"
@@ -80,7 +77,7 @@ class FeatureState:
     def features(self, comp: str, home: int, away: int, kickoff: datetime, neutral: bool = False) -> dict:
         """Pre-match feature snapshot for a fixture (nothing about the match itself is used)."""
         th, ta = self.teams[home], self.teams[away]
-        f = {"comp": comp, "n_home": th.n, "n_away": ta.n, "n_dom_home": th.n_dom, "n_dom_away": ta.n_dom}
+        f = {"comp": comp, "n_home": th.n, "n_away": ta.n}
         defaults = {"goals": 1.3, "sot": 4.3, "corners": 5.0, "yellows": 1.9, "fouls": 11.5, "shots": 12.0}
         for m in METRICS:
             for side, (atk, dfn) in (("h", (home, away)), ("a", (away, home))):
@@ -127,7 +124,6 @@ class FeatureState:
                 old = st.venue_goals.get(key)
                 st.venue_goals[key] = val if old is None else (1 - 2 * ALPHA) * old + 2 * ALPHA * val
             st.n += 1
-            st.n_dom += bool(m.get("dom"))
             st.last = m["kickoff"]
             st.recent = (st.recent + [(m["kickoff"], gf, ga, venue, comp)])[-20:]
         if m.get("h_red") is not None and m.get("a_red") is not None:

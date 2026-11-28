@@ -41,8 +41,6 @@ function MarketRows({ mk }: { mk: any }) {
 export default function InsightDetail() {
   const { id } = useParams();
   const { data, error } = useApi<any>(`insights/${id}`, 60000);
-  if (!data && error && /404/.test(String(error)))
-    return <div className="empty">Match not found — it may be outside the current snapshot. <Link to="/insights">Back to Match Insights</Link></div>;
   if (!data) return <Loading error={error} />;
   const f = data.fixture, p = data.prediction, rep = p?.report;
   const lastLive = data.live[data.live.length - 1];
@@ -58,7 +56,7 @@ export default function InsightDetail() {
               <Tri p={p.markets["1X2"]} labels={[f.home, "Draw", f.away]} />
               <div className="ai-stats mono" style={{ marginTop: 10 }}>
                 <span>xG {num(p.markets.EXPECTED_GOALS.home, 2)} – {num(p.markets.EXPECTED_GOALS.away, 2)} (total {num(p.markets.EXPECTED_GOALS.total, 2)})</span>
-                <span>confidence {num(p.confidence, 0)}/100</span>{p.cross_league_low_confidence && <span className="warn" title="Engine B compares ratings from different leagues here, and at least one team may lack domestic-league history in its data. Treat this prediction as low confidence.">cross-league rating · low confidence</span>}<span>data quality {num(p.data_quality, 0)}/100</span>
+                <span>confidence {num(p.confidence, 0)}/100</span><span>data quality {num(p.data_quality, 0)}/100</span>
               </div>
               <p className="muted" style={{ fontSize: 11 }}>Predicted {romeTime(p.created_at)} · revision {p.revision} · training data up to {romeTime(p.data_cutoff)}. Probabilities, not certainties.</p>
             </Card>

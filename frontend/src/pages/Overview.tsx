@@ -64,7 +64,7 @@ export default function Overview() {
       <div className="grid g2" style={{ marginTop: 12 }}>
         <Card title="Open virtual bets (best EV first)" right={<Link to="/slip">bet slip →</Link>}>
           {data.opportunities.length === 0 ? (
-            <div className="nobet-hero">No open bets right now{b.settled ? <> · {b.settled} settled → <Link to="/history">History</Link></> : null}.<br /><span>No bet is a valid decision when no price is clearly too generous.</span></div>
+            <div className="nobet-hero">NO BET — no sufficiently reliable value opportunity identified.<br /><span>That is a successful decision, not a failure.</span></div>
           ) : (
             <table><thead><tr><th>Match</th><th>Selection</th><th className="num">Odds</th><th className="num">EV</th><th>Kickoff</th></tr></thead>
               <tbody>{data.opportunities.map((o: any) => (

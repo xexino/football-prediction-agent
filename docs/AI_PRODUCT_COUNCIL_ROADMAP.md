@@ -186,9 +186,3 @@ Earlier items keep their IDs; the council IDs reference them, so no duplicate is
 | 2026-11-26 18:50 cycle: Overview equity headline, open matches kept on today lists 12 h, health banner names its causes, "at placement" label | IMPLEMENTED | UI agent, clock-shifted checks |
 | UEL/UECL coverage 6 of 36 (TheSportsDB cap) | RECORDED | Fixtures health to say so next cycle |
 | ECC skills (owner request 2026-11-26): 17 adapted `ecc-*` project skills + `fil-guardrails` + `fil-council-cycle` + CLAUDE.md | IMPLEMENTED | Curated for this stack; MIT; no executable files; project rules take precedence |
-| 2026-11-27 00:50 cycle: overdue fallback for UEL/UECL | IMPLEMENTED | 6/6 games of 26 Nov had no result source |
-| 2026-11-27 00:50 cycle: Engine B "cross-league rating, low confidence" flag (display only) | IMPLEMENTED | All 13 UCL B predictions lack domestic history on ≥ 1 side |
-| 2026-11-27 00:50 cycle: Analytics small-sample guard, /predictions bet note, badge clipping, friendly 404, open-bets empty state | IMPLEMENTED | UI agent |
-| 2026-11-26 18:50 cycle: provider outage/lock-out handling | VERIFIED | 0 × 429 / 0 × 5xx since; fixtures step ~150 s = spacing |
-| 2026-11-26 12:50 cycle: log() buffering | VERIFIED | First `collect` row persisted (bet #1 settlement) |
-| UEFA→domestic id mapping walk-forward (Engine B) | NO-GO (for now) | Underpowered; needs a curated alias table ≥ 80 % coverage |
