@@ -137,7 +137,7 @@ def compute(now: datetime | None = None, include_db_check: bool = True) -> dict:
         comps["results"] = {"state": "HEALTHY" if not overdue else ("STALE" if len(very_late) >= OVERDUE_STALE_MIN else "DEGRADED"),
                             "overdue": len(overdue), "overdue_24h": len(very_late),
                             "unresolved_round_complete": unresolved, "unmonitored_backlog": backlog,
-                            "detail": ((f"{len(overdue)} matches kicked off more than {OVERDUE_H} h ago and still have no verified result "
+                            "detail": ((f"{len(overdue)} matches finished more than {OVERDUE_H} h ago without a verified result "
                                         f"({len(very_late)} older than {OVERDUE_STALE_H} h); lower leagues depend on "
                                         "football-data.co.uk, which publishes with a delay") if overdue else
                                        "every match that kicked off more than 3 h ago has a result")

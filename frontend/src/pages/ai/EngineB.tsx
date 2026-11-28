@@ -14,15 +14,14 @@ export default function EngineB() {
   const { data, error } = useApi<any>("engine_b/performance", 300000);
   if (!data) return <Loading error={error} />;
   const o = data.overall, v = data.validation;
-  const hist = data.bankroll.history.map((h: any) => ({ t: h.t?.slice(5, 16).replace("T", " "), balance: h.balance })).filter((h: any, i: number, a: any[]) => i === a.length - 1 || a[i + 1].t !== h.t);
+  const hist = data.bankroll.history.map((h: any) => ({ t: h.t?.slice(5, 16), balance: h.balance }));
   const m1 = v?.metrics_1x2 || {};
   return (
     <>
       <div className="topbar"><div><h1>Engine B — track record</h1><div className="sub">{data.disclaimer}</div></div></div>
       <SubNav />
       <div className="grid g6">
-        <Stat label="Engine B bankroll" value={eur((data.bankroll.current ?? 0) + (data.bankroll.open ?? 0))}
-              delta={`cash ${eur(data.bankroll.current)} + open ${eur(data.bankroll.open ?? 0)} · capital ${eur(data.bankroll.capital ?? data.bankroll.start)}`} />
+        <Stat label="Engine B bankroll" value={eur(data.bankroll.current)} delta={`start ${eur(data.bankroll.start)}`} />
         <Stat label="P/L (settled)" value={eur(o.profit, true)} tone={cls(o.profit)} delta={`staked ${eur(o.staked)}`} />
         <Stat label="ROI" value={spct(o.roi)} tone={cls(o.roi)} delta={`n = ${o.settled}`} />
         <Stat label="Selections" value={o.bets} delta={`${o.pending} pending`} />

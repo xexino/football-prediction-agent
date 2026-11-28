@@ -41,11 +41,3 @@ export function healthCauses(components: Record<string, any> | null | undefined)
     .map(([k, c]) => (k === "results" && c.overdue ? `results (${c.overdue} overdue)` : k))
     .join(", ");
 }
-
-/** Reasons stored before 2026-11-27 printed an away AH selection with the HOME line ("AH away -1" for "away +1").
- *  Records are immutable, so the text is corrected for display only. */
-export function fixAhReason(reason: string, market?: string, selection?: string, line?: number | null): string {
-  if (market !== "AH" || selection !== "away" || line === null || line === undefined || line === 0) return reason;
-  const fmt = (x: number) => (x > 0 ? `+${x}` : `${x}`);
-  return reason.replace(`AH away ${fmt(line)} @`, `AH away ${fmt(-line)} @`);
-}

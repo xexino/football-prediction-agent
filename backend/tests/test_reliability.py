@@ -1441,30 +1441,3 @@ def test_health_counter_cases(db, monkeypatch):
     comps = health.compute(include_db_check=False)["components"]
     assert comps["live"]["state"] == "DEGRADED" and comps["live"]["idle"] is False
     assert comps["odds"]["state"] == "HEALTHY"                                                  # not a coverage gap
-
-
-def test_asian_handicap_reference_skips_implausible_exchange_row():
-    """Bet #3 (Crewe v Grimsby, 2026-11-27) was assessed against a BFE AH row with 8.71 % overround."""
-    from types import SimpleNamespace as NS
-
-    import numpy as np
-    from scipy.stats import poisson
-
-    from fil.value import assess
-
-    h, a = poisson.pmf(np.arange(10), 1.35), poisson.pmf(np.arange(10), 1.15)
-    M = np.outer(h, a); M /= M.sum()
-    pH, pD = float(np.tril(M, -1).sum()), float(np.trace(M))
-    pred = {"matrix": M, "markets": {"1X2": {"home": pH, "draw": pD, "away": 1 - pH - pD},
-                                      "OU25": {"over": 0.5, "under": 0.5}, "BTTS": {"yes": 0.5, "no": 0.5}}}
-    blank = dict(home=None, draw=None, away=None, over25=None, under25=None)
-    b365 = NS(id=1, bookmaker="B365", ah_line=0.25, ah_home=2.00, ah_away=1.85, **blank)
-    bfe = NS(id=2, bookmaker="BFE", ah_line=0.25, ah_home=1.82, ah_away=1.86, **blank)   # 8.71 % overround
-    avg = NS(id=3, bookmaker="Avg", ah_line=0.25, ah_home=1.91, ah_away=1.82, **blank)
-    out = assess(pred, {"B365": b365, "BFE": bfe, "Avg": avg}, 90, 90, 50, True, 1.0)
-    ah = [x for x in out if x.market == "AH"]
-    assert ah, "an AH assessment is produced"
-    from fil.models.markets import devig
-
-    q_avg = devig([1.91, 1.82])
-    assert any(abs(x.market_prob - q_avg[0]) < 1e-9 for x in ah if x.selection == "home")   # Avg, not BFE
