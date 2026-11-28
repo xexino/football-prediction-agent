@@ -1,6 +1,7 @@
 import { useParams, Link } from "react-router-dom";
 import { useApi } from "../../hooks";
-import { Card, Loading, num, pct, romeTime, Status, statusNow } from "../../ui";
+import { Card, Loading, eur, num, pct, romeTime, selLabel, Status, statusNow } from "../../ui";
+import { fixAhReason } from "../../lib/honesty";
 import { Coverage, SubNav, Tri, liveLabel } from "./common";
 
 const SECTION_TITLES: Record<string, string> = {
@@ -41,6 +42,10 @@ function MarketRows({ mk }: { mk: any }) {
 export default function InsightDetail() {
   const { id } = useParams();
   const { data, error } = useApi<any>(`insights/${id}`, 60000);
+  const { data: betsA } = useApi<any>("bets?limit=5000", 300000);
+  const aBets = ((betsA?.items ?? []) as any[]).filter((b: any) => b.fixture?.id === Number(id));
+  if (!data && error && /404/.test(String(error)))
+    return <div className="empty">Match not found — it may be outside the current snapshot. <Link to="/insights">Back to Match Insights</Link></div>;
   if (!data) return <Loading error={error} />;
   const f = data.fixture, p = data.prediction, rep = p?.report;
   const lastLive = data.live[data.live.length - 1];
@@ -56,7 +61,7 @@ export default function InsightDetail() {
               <Tri p={p.markets["1X2"]} labels={[f.home, "Draw", f.away]} />
               <div className="ai-stats mono" style={{ marginTop: 10 }}>
                 <span>xG {num(p.markets.EXPECTED_GOALS.home, 2)} – {num(p.markets.EXPECTED_GOALS.away, 2)} (total {num(p.markets.EXPECTED_GOALS.total, 2)})</span>
-                <span>confidence {num(p.confidence, 0)}/100</span><span>data quality {num(p.data_quality, 0)}/100</span>
+                <span>confidence {num(p.confidence, 0)}/100</span>{p.cross_league_low_confidence && <span className="warn" title="Engine B compares ratings from different leagues here, and at least one team may lack domestic-league history in its data. Treat this prediction as low confidence.">cross-league rating · low confidence</span>}<span>data quality {num(p.data_quality, 0)}/100</span>
               </div>
               <p className="muted" style={{ fontSize: 11 }}>Predicted {romeTime(p.created_at)} · revision {p.revision} · training data up to {romeTime(p.data_cutoff)}. Probabilities, not certainties.</p>
             </Card>
@@ -106,7 +111,10 @@ export default function InsightDetail() {
           </tbody></table>
           <h3 style={{ marginTop: 10 }}>Engine B virtual selections</h3>
           {data.selections.length ? <table><tbody>{data.selections.map((b: any, i: number) => <tr key={i}><td>{b.market} {b.selection}</td><td className="num">{num(b.price)}</td><td><Status s={b.status} /></td><td className="muted" style={{ fontSize: 11 }}>{b.reason}</td></tr>)}</tbody></table>
-            : <div className="nobet-hero">NO BET — Engine B found no selection meeting its rules for this match.</div>}
+            : <div className="nobet-hero">Engine B: no selection meeting its rules for this match.{aBets.length ? ` Engine A has ${aBets.length} virtual bet${aBets.length === 1 ? "" : "s"} (below).` : ""}</div>}
+          {aBets.length > 0 && <><h3 style={{ marginTop: 10 }}>Engine A virtual bets</h3>
+            <table><tbody>{aBets.map((b: any) => <tr key={b.id}><td>{selLabel(b.market, b.selection, b.line)}</td><td className="num">{num(b.price)}</td><td className="num">{eur(b.stake)}</td><td><Status s={b.status} /></td>
+              <td className="muted" style={{ fontSize: 11 }}>{b.reason ? fixAhReason(b.reason, b.market, b.selection, b.line) : ""}</td></tr>)}</tbody></table></>}
           <p style={{ marginTop: 10 }}><Link to="/insights">← all matches</Link></p>
         </Card>
       </div>

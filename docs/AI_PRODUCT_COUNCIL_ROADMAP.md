@@ -186,3 +186,22 @@ Earlier items keep their IDs; the council IDs reference them, so no duplicate is
 | 2026-11-26 18:50 cycle: Overview equity headline, open matches kept on today lists 12 h, health banner names its causes, "at placement" label | IMPLEMENTED | UI agent, clock-shifted checks |
 | UEL/UECL coverage 6 of 36 (TheSportsDB cap) | RECORDED | Fixtures health to say so next cycle |
 | ECC skills (owner request 2026-11-26): 17 adapted `ecc-*` project skills + `fil-guardrails` + `fil-council-cycle` + CLAUDE.md | IMPLEMENTED | Curated for this stack; MIT; no executable files; project rules take precedence |
+| 2026-11-27 00:50 cycle: overdue fallback for UEL/UECL | IMPLEMENTED | 6/6 games of 26 Nov had no result source |
+| 2026-11-27 00:50 cycle: Engine B "cross-league rating, low confidence" flag (display only) | IMPLEMENTED | All 13 UCL B predictions lack domestic history on ≥ 1 side |
+| 2026-11-27 00:50 cycle: Analytics small-sample guard, /predictions bet note, badge clipping, friendly 404, open-bets empty state | IMPLEMENTED | UI agent |
+| 2026-11-26 18:50 cycle: provider outage/lock-out handling | VERIFIED | 0 × 429 / 0 × 5xx since; fixtures step ~150 s = spacing |
+| 2026-11-26 12:50 cycle: log() buffering | VERIFIED | First `collect` row persisted (bet #1 settlement) |
+| UEFA→domestic id mapping walk-forward (Engine B) | NO-GO (for now) | Underpowered; needs a curated alias table ≥ 80 % coverage |
+| 2026-11-27 06:50 cycle: honest health (odds coverage gap DEGRADED with count; live idle; unmonitored backlog out of the stale alarm) | IMPLEMENTED | UNKNOWN odds while 0/91 weekend fixtures had odds; live DEGRADED every night; EGY1/RSA1 noise |
+| Weekend odds gap (football-data.co.uk not yet published; no Odds API key) | RECORDED | No paid service or new account without the owner; no bets possible until odds arrive |
+| 2026-11-27 00:50 cycle items (UEFA fallback results, small-sample guard, bet notes, 404, low-conf. pills) | VERIFIED | 10/10 results web-verified; UI agent live checks |
+| Live comparison with CIs and naive baseline on the site | PROPOSED | Models agent; next cycle |
+| 2026-11-27 18:50 cycle: AH reference price now checked with plausible() (integrity bug: bet #3 used an 8.71 % BFE row) | IMPLEMENTED | Same clean-reference rule as every other Engine A market; bet #3 stays (immutable) |
+| 2026-11-27 18:50 cycle: money display (equity headlines, open bets on forecast card, −€, AH away reason line) | IMPLEMENTED | First €10 bets exposed them |
+| Engine B OU bets: model 13–18 pp above market, negative EV at the clean price; B's own ref rule allows BFE ≤ 15 % | RECORDED FOR OWNER | Betting rules frozen; CFO paused; no change |
+| 2026-11-27 06:50 cycle honest health | VERIFIED | Live: odds HEALTHY, live idle, backlog listed |
+| 12:50 cycle | MISSED | Session worker restart; covered by the 18:50 cycle |
+| Backtest re-run after the AH reference fix | VERIFIED | 40→38 bets, ROI −29.7 %→−25.9 % (CI incl. 0); the 2 dropped AH bets both lost; 1X2/OU unchanged |
+| 2026-11-28 00:50 cycle: Engine B small-sample guard, − sign in %, stake/return on open bets, Engine A bets on match pages | IMPLEMENTED | UI agent |
+| 2026-11-28 06:50 cycle | NO CHANGE | Quiet window: all green, overdue = normal football-data.co.uk lag |
+| 2026-11-28 12:50 cycle: live health false alarm during goalless games (poller reply now counts as fresh) | IMPLEMENTED | Skeptic: use the live poller's own reply, not provider last_success (masked by results runs) |

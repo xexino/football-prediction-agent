@@ -12,6 +12,7 @@ from sqlalchemy import func, select
 from .db import (ModelVersion, Competition, DataSource, EBBankrollTransaction, EBBet, EBEvaluation, EBLiveEvent, EBLiveSnapshot,
                  EBModelVersion, EBPrediction, EBSettlement, EBValidationRun, Fixture, OddsObservation, Prediction, Team,
                  session_scope)
+from .engine_b.features import MIN_HISTORY
 from .timeutil import iso, rome, utcnow
 
 router = APIRouter()
@@ -28,6 +29,20 @@ def _fx(f, teams, comps):
             "kickoff_rome": rome(f.kickoff_utc), "status": f.status,
             "score": None if f.home_goals is None else f"{f.home_goals}-{f.away_goals}",
             "coverage_status": (c.coverage or {}).get("coverage_status", "UNKNOWN")}
+
+
+UEFA_CLUB_COMPS = {"UCL", "UEL", "UECL"}
+
+
+def cross_league_low_confidence(comp_code: str, features: dict | None) -> bool:
+    """Display-only warning (council cycles 2026-11-26/27): in UEFA club competitions Engine B's ratings mix scales
+    from different leagues, and UEFA teams often carry separate ids with no domestic history. A prediction is flagged
+    when either side has fewer than MIN_HISTORY domestic-league matches in B's state. Probabilities and bets are
+    untouched; predictions stored before this field existed count as 0 domestic matches (flagged)."""
+    if comp_code not in UEFA_CLUB_COMPS:
+        return False
+    f = features or {}
+    return min(f.get("n_dom_home", 0) or 0, f.get("n_dom_away", 0) or 0) < MIN_HISTORY
 
 
 def _summary(p: EBPrediction | None):
@@ -89,6 +104,8 @@ def insights(days_back: int = 3, days_forward: int = 7):
                 continue
             mk, _ = _market(s, f.id) if p is not None else (None, None)
             items.append({**_fx(f, teams, comps), "phase": phase, "engine_b": _summary(p),
+                          "cross_league_low_confidence": p is not None and cross_league_low_confidence(
+                              comps[f.competition_id].code, p.features),
                           "engine_a": ap[f.id].probs["1X2"] if f.id in ap else None, "market": mk,
                           "live": None if lv is None else {"label": lv.data_label, "minute": lv.minute, "status": lv.status,
                                                            "score": None if lv.home_goals is None else f"{lv.home_goals}-{lv.away_goals}",
@@ -124,7 +141,8 @@ def insight_detail(fixture_id: int):
                 "id": latest.id, "revision": latest.revision, "created_at": iso(latest.created_at),
                 "data_cutoff": iso(latest.data_cutoff), "markets": latest.markets, "score_matrix": latest.score_matrix,
                 "unavailable": latest.unavailable, "report": latest.report, "confidence": latest.confidence,
-                "data_quality": latest.data_quality, "features": latest.features},
+                "data_quality": latest.data_quality, "features": latest.features,
+                "cross_league_low_confidence": cross_league_low_confidence(comps[f.competition_id].code, latest.features)},
             "history": [{"id": p.id, "revision": p.revision, "created_at": iso(p.created_at), "x12": p.markets["1X2"],
                          "xg": p.markets["EXPECTED_GOALS"], "evaluation": evals.get(p.id)} for p in preds],
             "engine_a": None if a is None else {"x12": a.probs["1X2"], "exp_goals": [a.exp_home_goals, a.exp_away_goals],
@@ -171,7 +189,10 @@ def performance():
         vr = s.scalars(select(EBValidationRun).order_by(EBValidationRun.id.desc())).first()
         n_pred = s.scalar(select(func.count(EBPrediction.id)))
         return {
-            "bankroll": {"start": txs[0].amount if txs else 100.0, "current": txs[-1].balance_after if txs else 100.0,
+            "bankroll": {"start": txs[0].amount if txs else 100.0, "current": txs[-1].balance_after if txs else 500.0,
+                         # capital = initial + top-ups (owner decision 2026-11-25: €500); open = stakes of pending bets
+                         "capital": round(sum(t.amount for t in txs if t.tx_type in ("initial", "top_up")), 2) if txs else 500.0,
+                         "open": round(sum(b.stake for b in bets if b.status == "pending"), 2),
                          "history": [{"t": iso(t.created_at), "balance": t.balance_after, "type": t.tx_type} for t in txs]},
             "overall": _perf(bets), "by_market": group(lambda b: b.market),
             "by_competition": group(lambda b: comps[fx[b.fixture_id].competition_id].code),
