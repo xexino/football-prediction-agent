@@ -82,16 +82,8 @@ def compute(now: datetime | None = None, include_db_check: bool = True) -> dict:
         st, age = _age_state(newest_odds, "odds", now)
         comps["odds"] = {"state": st, "age_h": age, "last": iso(newest_odds),
                          "detail": "newest pre-match odds for upcoming fixtures (source publishes ~2x/week)"}
-        n_up = s.scalar(select(func.count(Fixture.id)).where(Fixture.status == "scheduled", Fixture.kickoff_utc > now,
-                                                             Fixture.kickoff_utc < now + timedelta(days=7)))
-        if newest_odds is None and n_up:
-            # the feed runs but nothing upcoming is priced: that is a coverage gap (no bets possible), not "unknown"
-            # (council cycle 2026-11-27 06:50: UNKNOWN while 0 of 91 weekend fixtures had odds)
-            last_feed = s.scalar(select(func.max(OddsObservation.retrieved_at)).where(OddsObservation.kind == "pre_match"))
-            comps["odds"] = {"state": "DEGRADED", "age_h": None, "last": iso(last_feed), "with_odds": 0, "upcoming_7d": n_up,
-                             "detail": f"0 of {n_up} upcoming fixtures have pre-match odds (last odds feed "
-                                       f"{iso(last_feed) or 'never'}); no virtual bets are possible until odds arrive"}
-        upcoming = n_up
+        upcoming = s.scalar(select(func.count(Fixture.id)).where(Fixture.status == "scheduled", Fixture.kickoff_utc > now,
+                                                              Fixture.kickoff_utc < now + timedelta(days=7)))
         newest_result = s.scalar(select(func.max(Fixture.kickoff_utc)).where(Fixture.status == "finished",
                                                                          Fixture.first_seen_source == "football_data_uk"))
         comps["fixtures"] = {"state": "HEALTHY" if upcoming else "DEGRADED", "upcoming_7d": upcoming,
@@ -116,54 +108,25 @@ def compute(now: datetime | None = None, include_db_check: bool = True) -> dict:
             if len(sib) >= 3 and all(x == "finished" for x in sib):
                 unresolved.append(r.id)
         overdue = [r for r in overdue_all if r.id not in unresolved and r.kickoff_utc > now - timedelta(days=14)]
-        # only matches we monitor raise the alarm: an eligible competition, or anything with a prediction or a bet.
-        # Unmonitored, source-limited leagues (e.g. TheSportsDB-only EGY1/RSA1) stay visible as a backlog
-        # (council cycle 2026-11-27 06:50). A failed predict step cannot hide here: eligible competitions always count.
-        from .db import Competition, EBPrediction, Prediction, VirtualBet
-
-        eligible_ids = set(s.scalars(select(Competition.id).where(Competition.eligible.is_(True))))
-        ids = [r.id for r in overdue] or [-1]
-        watched = (set(s.scalars(select(Prediction.fixture_id).where(Prediction.fixture_id.in_(ids))))
-                   | set(s.scalars(select(EBPrediction.fixture_id).where(EBPrediction.fixture_id.in_(ids))))
-                   | set(s.scalars(select(VirtualBet.fixture_id).where(VirtualBet.fixture_id.in_(ids)))))
-        unmonitored = [r for r in overdue if r.competition_id not in eligible_ids and r.id not in watched]
-        overdue = [r for r in overdue if r not in unmonitored]
         very_late = [r for r in overdue if r.kickoff_utc < now - timedelta(hours=OVERDUE_STALE_H)]
-        backlog: dict[str, int] = {}
-        if unmonitored:
-            codes = dict(s.execute(select(Competition.id, Competition.code)).all())
-            for r in unmonitored:
-                backlog[codes.get(r.competition_id, "?")] = backlog.get(codes.get(r.competition_id, "?"), 0) + 1
         comps["results"] = {"state": "HEALTHY" if not overdue else ("STALE" if len(very_late) >= OVERDUE_STALE_MIN else "DEGRADED"),
                             "overdue": len(overdue), "overdue_24h": len(very_late),
-                            "unresolved_round_complete": unresolved, "unmonitored_backlog": backlog,
+                            "unresolved_round_complete": unresolved,
                             "detail": ((f"{len(overdue)} matches finished more than {OVERDUE_H} h ago without a verified result "
                                         f"({len(very_late)} older than {OVERDUE_STALE_H} h); lower leagues depend on "
                                         "football-data.co.uk, which publishes with a delay") if overdue else
                                        "every match that kicked off more than 3 h ago has a result")
                                       + (f"; {len(unresolved)} older match(es) never got a result although the rest of "
-                                         "their round did (probably postponed; not counted as stale)" if unresolved else "")
-                                      + (f"; unmonitored backlog (no prediction, no bet): "
-                                         + ", ".join(f"{k} {v}" for k, v in sorted(backlog.items())) if backlog else "")}
+                                         "their round did (probably postponed; not counted as stale)" if unresolved else "")}
         # live data: informational (never critical). Age of the newest live snapshot, labelled honestly.
         from .db import EBLiveSnapshot
 
         newest_live = s.scalar(select(func.max(EBLiveSnapshot.created_at)))
-        # a stale live feed only matters while a match it covers could be in play (live polling: football-data.org
-        # competitions, 11-23 UTC). Otherwise it is idle, not degraded (it was DEGRADED every night by design).
-        live_comp_ids = [c.id for c in s.scalars(select(Competition)) if "fdorg" in (c.sources or {})] or [-1]
-        polling = 11 <= now.hour <= 23  # live slots "7,27,47 11-23 * * *" (ops/schedule.py): outside them, idle by design
-        in_play = polling and s.scalar(select(func.count(Fixture.id)).where(
-            Fixture.competition_id.in_(live_comp_ids), Fixture.kickoff_utc <= now,
-            Fixture.kickoff_utc > now - timedelta(hours=2, minutes=30),
-            Fixture.status.notin_(("postponed", "cancelled", "abandoned")))) > 0
-        live_fresh = newest_live is not None and now - newest_live < timedelta(minutes=45)
         comps["live"] = {"state": "UNKNOWN" if newest_live is None else
-                         ("HEALTHY" if live_fresh or not in_play else "DEGRADED"), "idle": not live_fresh and not in_play,
+                         ("HEALTHY" if now - newest_live < timedelta(minutes=45) else "DEGRADED"),
                          "last": iso(newest_live),
                          "detail": "no live snapshot yet" if newest_live is None else
-                         ("idle: no covered match in play" if not live_fresh and not in_play else
-                          "newest live snapshot; free-plan feeds are DELAYED, never real-time")}
+                         "newest live snapshot; free-plan feeds are DELAYED, never real-time"}
         providers = {}
         for k, d in ds.items():
             if not d.configured:
