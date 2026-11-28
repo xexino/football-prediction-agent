@@ -157,13 +157,19 @@ def compute(now: datetime | None = None, include_db_check: bool = True) -> dict:
             Fixture.competition_id.in_(live_comp_ids), Fixture.kickoff_utc <= now,
             Fixture.kickoff_utc > now - timedelta(hours=2, minutes=30),
             Fixture.status.notin_(("postponed", "cancelled", "abandoned")))) > 0
-        live_fresh = newest_live is not None and now - newest_live < timedelta(minutes=45)
+        # snapshots are stored only when a score/status changes, so a goalless spell writes none: the feed is fresh
+        # when either a snapshot OR a successful poll of the live provider is recent (council cycle 2026-11-28 12:50:
+        # DEGRADED 18 min into three 0-0 ENG2 games although football-data.org answered at 12:42)
+        live_ds = ds.get("football_data_org")
+        last_poll = live_ds.last_success_at if live_ds is not None else None
+        live_fresh = any(t is not None and now - t < timedelta(minutes=45) for t in (newest_live, last_poll))
         comps["live"] = {"state": "UNKNOWN" if newest_live is None else
                          ("HEALTHY" if live_fresh or not in_play else "DEGRADED"), "idle": not live_fresh and not in_play,
                          "last": iso(newest_live),
                          "detail": "no live snapshot yet" if newest_live is None else
                          ("idle: no covered match in play" if not live_fresh and not in_play else
-                          "newest live snapshot; free-plan feeds are DELAYED, never real-time")}
+                          "newest live snapshot; free-plan feeds are DELAYED, never real-time"),
+                         "last_poll": iso(last_poll)}
         providers = {}
         for k, d in ds.items():
             if not d.configured:

@@ -1468,3 +1468,35 @@ def test_asian_handicap_reference_skips_implausible_exchange_row():
 
     q_avg = devig([1.91, 1.82])
     assert any(abs(x.market_prob - q_avg[0]) < 1e-9 for x in ah if x.selection == "home")   # Avg, not BFE
+
+
+def test_live_is_fresh_when_the_provider_answered_but_no_score_changed(db, monkeypatch):
+    """0-0 games write no snapshot; a recent successful poll of football-data.org keeps live HEALTHY."""
+    from datetime import timedelta as td
+
+    from fil import health
+    from fil.db import Competition, DataSource, EBLiveSnapshot, Fixture, Team, session_scope
+    from fil.timeutil import utcnow
+    from sqlalchemy import select
+
+    now = utcnow().replace(hour=12, minute=48, second=0, microsecond=0)
+    monkeypatch.setattr(health, "utcnow", lambda: now)
+    with session_scope() as s:
+        comp = s.scalar(select(Competition).where(Competition.code == "ENG2"))
+        a, b = Team(name="Pr A", country="England"), Team(name="Pr B", country="England")
+        s.add_all([a, b]); s.flush()
+        f = Fixture(competition_id=comp.id, home_team_id=a.id, away_team_id=b.id, kickoff_utc=now - td(minutes=18),
+                    match_date=str(now.date()), status="scheduled", first_seen_source="football_data_uk")
+        s.add(f); s.flush()
+        s.add(EBLiveSnapshot(fixture_id=f.id, created_at=now - td(hours=13), provider="x", provider_event_id="1",
+                             status="finished", minute_source="provider", data_label="DELAYED", input_hash="old"))
+        dsrc = s.scalar(select(DataSource).where(DataSource.key == "football_data_org"))
+        if dsrc is None:
+            dsrc = DataSource(key="football_data_org", name="football-data.org", kind="fixtures", base_url="x")
+            s.add(dsrc)
+        dsrc.status, dsrc.last_success_at = "ok", now - td(minutes=6)
+    lv = health.compute(include_db_check=False)["components"]["live"]
+    assert lv["state"] == "HEALTHY", lv
+    with session_scope() as s:                                  # provider silent for an hour → DEGRADED again
+        s.scalar(select(DataSource).where(DataSource.key == "football_data_org")).last_success_at = now - td(minutes=60)
+    assert health.compute(include_db_check=False)["components"]["live"]["state"] == "DEGRADED"
