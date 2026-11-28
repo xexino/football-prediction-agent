@@ -1470,12 +1470,13 @@ def test_asian_handicap_reference_skips_implausible_exchange_row():
     assert any(abs(x.market_prob - q_avg[0]) < 1e-9 for x in ah if x.selection == "home")   # Avg, not BFE
 
 
-def test_live_is_fresh_when_the_provider_answered_but_no_score_changed(db, monkeypatch):
-    """0-0 games write no snapshot; a recent successful poll of football-data.org keeps live HEALTHY."""
+def test_live_is_fresh_when_the_poller_answered_but_no_score_changed(db, monkeypatch):
+    """0-0 games write no snapshot: a recent live run whose poll got a reply keeps live HEALTHY; a broken poller is
+    not masked by a healthy results fetch."""
     from datetime import timedelta as td
 
     from fil import health
-    from fil.db import Competition, DataSource, EBLiveSnapshot, Fixture, Team, session_scope
+    from fil.db import Competition, DataSource, EBLiveSnapshot, Fixture, JobRun, Team, session_scope
     from fil.timeutil import utcnow
     from sqlalchemy import select
 
@@ -1490,13 +1491,14 @@ def test_live_is_fresh_when_the_provider_answered_but_no_score_changed(db, monke
         s.add(f); s.flush()
         s.add(EBLiveSnapshot(fixture_id=f.id, created_at=now - td(hours=13), provider="x", provider_event_id="1",
                              status="finished", minute_source="provider", data_label="DELAYED", input_hash="old"))
-        dsrc = s.scalar(select(DataSource).where(DataSource.key == "football_data_org"))
-        if dsrc is None:
-            dsrc = DataSource(key="football_data_org", name="football-data.org", kind="fixtures", base_url="x")
-            s.add(dsrc)
-        dsrc.status, dsrc.last_success_at = "ok", now - td(minutes=6)
+        # a healthy results fetch 6 min ago must NOT count as a live poll
+        s.add(DataSource(key="football_data_org", name="football-data.org", kind="fixtures", base_url="x", status="ok",
+                         last_success_at=now - td(minutes=6)))
+        s.add(JobRun(job="live", started_at=now - td(minutes=2), finished_at=now - td(minutes=1), status="success",
+                     summary={"results": {"eb_live": {"providers": {"football_data_org": "error: timeout"}}}}))
+    assert health.compute(include_db_check=False)["components"]["live"]["state"] == "DEGRADED"   # broken poller shows
+    with session_scope() as s:
+        s.add(JobRun(job="live", started_at=now - td(minutes=1), finished_at=now, status="success",
+                     summary={"results": {"eb_live": {"providers": {"football_data_org": {"matches": 3}}}}}))
     lv = health.compute(include_db_check=False)["components"]["live"]
-    assert lv["state"] == "HEALTHY", lv
-    with session_scope() as s:                                  # provider silent for an hour → DEGRADED again
-        s.scalar(select(DataSource).where(DataSource.key == "football_data_org")).last_success_at = now - td(minutes=60)
-    assert health.compute(include_db_check=False)["components"]["live"]["state"] == "DEGRADED"
+    assert lv["state"] == "HEALTHY" and lv["last_poll"]                                         # 0-0 games: fine
