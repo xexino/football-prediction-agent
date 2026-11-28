@@ -1,0 +1,219 @@
+{
+ "generated_at": "2026-11-28T14:48:40Z",
+ "current": {
+  "run_id": "46156425020",
+  "run_attempt": "1",
+  "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46156425020",
+  "event": "workflow_dispatch",
+  "schedule": null,
+  "job": "live",
+  "commit": "32eae818cee6",
+  "started_at": "2026-11-28T14:47:13Z",
+  "finished_at": "2026-11-28T14:48:40Z",
+  "state": "HEALTHY",
+  "failure_stage": null,
+  "stages": {
+   "restore": "ok",
+   "route": "ok",
+   "run": "ok",
+   "persist": "ok",
+   "export": "ok"
+  },
+  "job_status": "success",
+  "database": {
+   "restore": "success",
+   "source": "release",
+   "persist": "persisted",
+   "persist_detail": null
+  },
+  "dashboard_data": "fresh",
+  "partial": false
+ },
+ "last_success_at": "2026-11-28T14:48:40Z",
+ "last_failure_at": "2026-11-25T15:47:28Z",
+ "last_failure_stage": "persist",
+ "consecutive_failures": 0,
+ "recent": [
+  {
+   "run_id": "46156425020",
+   "job": "live",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T14:48:40Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46156425020"
+  },
+  {
+   "run_id": "46154713457",
+   "job": "live",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T14:28:29Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46154713457"
+  },
+  {
+   "run_id": "46152990104",
+   "job": "live",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T14:08:37Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46152990104"
+  },
+  {
+   "run_id": "46151324919",
+   "job": "live",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T13:48:28Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46151324919"
+  },
+  {
+   "run_id": "46150666892",
+   "job": "results,fixtures_odds",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T13:41:33Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46150666892"
+  },
+  {
+   "run_id": "46149669570",
+   "job": "live",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T13:31:30Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46149669570"
+  },
+  {
+   "run_id": "46149497495",
+   "job": "results,fixtures_odds",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T13:30:12Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46149497495"
+  },
+  {
+   "run_id": "46147994747",
+   "job": "live",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T13:08:46Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46147994747"
+  },
+  {
+   "run_id": "46146358607",
+   "job": "live",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T12:48:28Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46146358607"
+  },
+  {
+   "run_id": "46145794621",
+   "job": "results,fixtures_odds",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T12:43:19Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46145794621"
+  },
+  {
+   "run_id": "46144710804",
+   "job": "live",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T12:28:14Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46144710804"
+  },
+  {
+   "run_id": "46143063550",
+   "job": "live",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T12:08:19Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46143063550"
+  },
+  {
+   "run_id": "46141491919",
+   "job": "live",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T11:48:11Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46141491919"
+  },
+  {
+   "run_id": "46139937689",
+   "job": "live",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T11:28:10Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46139937689"
+  },
+  {
+   "run_id": "46138362990",
+   "job": "live",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T11:08:39Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46138362990"
+  },
+  {
+   "run_id": "46131529017",
+   "job": "results,fixtures_odds",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T09:46:08Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46131529017"
+  },
+  {
+   "run_id": "46117656846",
+   "job": "results,fixtures_odds",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T06:43:36Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46117656846"
+  },
+  {
+   "run_id": "46110843731",
+   "job": "daily",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T05:16:52Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46110843731"
+  },
+  {
+   "run_id": "46103939115",
+   "job": "results,fixtures_odds",
+   "event": "workflow_dispatch",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T03:44:33Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46103939115"
+  },
+  {
+   "run_id": "46098930319",
+   "job": "live",
+   "event": "schedule",
+   "state": "HEALTHY",
+   "failure_stage": null,
+   "finished_at": "2026-11-28T02:38:04Z",
+   "run_url": "https://github.com/xexino/football-prediction-agent/actions/runs/46098930319"
+  }
+ ],
+ "notes": "Pipeline state of the run that published this page. The dashboard additionally marks data older than 8 h as STALE; GitHub can delay or skip scheduled runs, which the separate watchdog workflow reports as GitHub issues labelled 'autopilot-incident'."
+}
