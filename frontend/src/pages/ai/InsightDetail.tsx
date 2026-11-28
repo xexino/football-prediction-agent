@@ -42,7 +42,7 @@ function MarketRows({ mk }: { mk: any }) {
 export default function InsightDetail() {
   const { id } = useParams();
   const { data, error } = useApi<any>(`insights/${id}`, 60000);
-  const { data: betsA } = useApi<any>("bets", 300000);
+  const { data: betsA } = useApi<any>("bets?limit=5000", 300000);
   const aBets = ((betsA?.items ?? []) as any[]).filter((b: any) => b.fixture?.id === Number(id));
   if (!data && error && /404/.test(String(error)))
     return <div className="empty">Match not found — it may be outside the current snapshot. <Link to="/insights">Back to Match Insights</Link></div>;
