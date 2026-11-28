@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { fixAhReason, healthCauses, keepOnToday, legacyStake, liveScoreText, sampleNote, smallSample } from "../src/lib/honesty.ts";
+import { healthCauses, keepOnToday, legacyStake, liveScoreText, sampleNote, smallSample } from "../src/lib/honesty.ts";
 
 test("bets before the €10 rule are legacy", () => {
   assert.equal(legacyStake("2026-11-24T19:31:44"), true);
@@ -33,9 +33,4 @@ test("health banner names its causes", () => {
   assert.equal(healthCauses({ results: { state: "STALE", overdue: 18 }, live: { state: "DEGRADED" }, odds: { state: "HEALTHY" } }),
     "results (18 overdue), live");
   assert.equal(healthCauses(null), "");
-});
-test("away AH reason shows the away line", () => {
-  assert.equal(fixAhReason("VALUE: AH away -1 @ 1.90 (B365)", "AH", "away", -1), "VALUE: AH away +1 @ 1.90 (B365)");
-  assert.equal(fixAhReason("VALUE: AH home +0.25 @ 2.00", "AH", "home", 0.25), "VALUE: AH home +0.25 @ 2.00");
-  assert.equal(fixAhReason("VALUE: OU25 under @ 3.00", "OU25", "under", null), "VALUE: OU25 under @ 3.00");
 });

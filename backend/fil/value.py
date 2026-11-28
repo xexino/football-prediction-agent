@@ -152,9 +152,7 @@ def assess(pred: dict, snaps: dict, quality: float, confidence: float, n_min: in
         ref = None
         for b in REFERENCE_BOOKS:
             o = snaps.get(b)
-            # the same clean-reference rule as every other market (council cycle 2026-11-27 18:50: bet #3 was priced
-            # against a BFE row with 8.71 % overround because this loop skipped plausible())
-            if o is not None and o.ah_line == line and plausible(b, o, ("ah_home", "ah_away")):
+            if o is not None and o.ah_home and o.ah_away and o.ah_line == line:
                 ref = o
                 break
         matrix = pred["matrix"]

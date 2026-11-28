@@ -63,7 +63,7 @@ function ForecastVsReality({ ov }: { ov: any }) {
       <div className="simple-k">Forecast vs reality (settled bets only)</div>
       <div className="simple-t" style={{ marginTop: 6 }}>
         {b.settled ? <>{b.settled} settled bet{b.settled === 1 ? "" : "s"}, €{staked.toFixed(0)} staked. <b>Actual result {eur(actual)}</b> ·
-        forecast {eur(exp)} (range {eur(lo)} to {eur(hi)}) → <b>{verdict}</b>.{b.pending ? <> {b.pending} open bet{b.pending === 1 ? "" : "s"} (€{(b.pending_exposure ?? 0).toFixed(0)}) not counted until settled.</> : null}</>
+        forecast {eur(exp)} (range {eur(lo)} to {eur(hi)}) → <b>{verdict}</b>.</>
           : <>No settled bets yet. The forecast per €10 bet is {eur(10 * FORECAST.central)} (range {eur(10 * FORECAST.low)} to {eur(10 * FORECAST.high)}); the comparison starts with the first settled bet.</>}
         {b.avg_clv != null && <> Average closing-line value {(b.avg_clv * 100).toFixed(1)}% (positive = we bet at better prices than the market's final price; the best early sign of a real edge).</>}
         {" "}A few dozen bets are mostly luck; the comparison becomes meaningful after ~150 bets for closing-line value and many hundreds for profit.

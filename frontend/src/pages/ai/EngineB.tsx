@@ -2,32 +2,30 @@ import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YA
 import { useApi } from "../../hooks";
 import { Card, Loading, Stat, Status, cls, eur, num, pct, romeTime, spct, tooltipStyle } from "../../ui";
 import { SubNav } from "./common";
-import { sampleNote, smallSample } from "../../lib/honesty";
 
 function Perf({ data, label }: { data: Record<string, any>; label: string }) {
   const rows = Object.entries(data || {});
   if (!rows.length) return <div className="empty">No bets yet.</div>;
   return <table><thead><tr><th>{label}</th><th className="num">Bets</th><th className="num">Settled</th><th className="num">P/L</th><th className="num">ROI</th><th className="num">Win rate</th><th className="num">CLV</th></tr></thead>
-    <tbody>{rows.map(([k, v]) => <tr key={k}><td>{k}</td><td className="num">{v.bets}</td><td className="num">{v.settled}</td><td className={`num ${cls(v.profit)}`}>{eur(v.profit, true)}</td><td className={`num ${smallSample(v.settled) ? "" : cls(v.roi)}`}>{smallSample(v.settled) ? "—" : spct(v.roi)}</td><td className="num">{smallSample(v.settled) ? "—" : pct(v.win_rate)}</td><td className="num">{spct(v.avg_clv)}</td></tr>)}</tbody></table>;
+    <tbody>{rows.map(([k, v]) => <tr key={k}><td>{k}</td><td className="num">{v.bets}</td><td className="num">{v.settled}</td><td className={`num ${cls(v.profit)}`}>{eur(v.profit, true)}</td><td className={`num ${cls(v.roi)}`}>{spct(v.roi)}</td><td className="num">{pct(v.win_rate)}</td><td className="num">{spct(v.avg_clv)}</td></tr>)}</tbody></table>;
 }
 
 export default function EngineB() {
   const { data, error } = useApi<any>("engine_b/performance", 300000);
   if (!data) return <Loading error={error} />;
   const o = data.overall, v = data.validation;
-  const hist = data.bankroll.history.map((h: any) => ({ t: h.t?.slice(5, 16).replace("T", " "), balance: h.balance })).filter((h: any, i: number, a: any[]) => i === a.length - 1 || a[i + 1].t !== h.t);
+  const hist = data.bankroll.history.map((h: any) => ({ t: h.t?.slice(5, 16), balance: h.balance }));
   const m1 = v?.metrics_1x2 || {};
   return (
     <>
       <div className="topbar"><div><h1>Engine B — track record</h1><div className="sub">{data.disclaimer}</div></div></div>
       <SubNav />
       <div className="grid g6">
-        <Stat label="Engine B bankroll" value={eur((data.bankroll.current ?? 0) + (data.bankroll.open ?? 0))}
-              delta={`cash ${eur(data.bankroll.current)} + open ${eur(data.bankroll.open ?? 0)} · capital ${eur(data.bankroll.capital ?? data.bankroll.start)}`} />
+        <Stat label="Engine B bankroll" value={eur(data.bankroll.current)} delta={`start ${eur(data.bankroll.start)}`} />
         <Stat label="P/L (settled)" value={eur(o.profit, true)} tone={cls(o.profit)} delta={`staked ${eur(o.staked)}`} />
-        <Stat label="ROI" value={smallSample(o.settled) ? "—" : spct(o.roi)} tone={smallSample(o.settled) ? undefined : cls(o.roi)} delta={smallSample(o.settled) ? sampleNote(o.settled) : `n = ${o.settled}`} />
+        <Stat label="ROI" value={spct(o.roi)} tone={cls(o.roi)} delta={`n = ${o.settled}`} />
         <Stat label="Selections" value={o.bets} delta={`${o.pending} pending`} />
-        <Stat label="Win rate" value={smallSample(o.settled) ? "—" : pct(o.win_rate)} delta={`n = ${o.settled}`} />
+        <Stat label="Win rate" value={pct(o.win_rate)} delta={`n = ${o.settled}`} />
         <Stat label="Predictions" value={data.predictions_total} delta="pre-match, immutable" />
       </div>
       <div className="grid g2" style={{ marginTop: 12 }}>
