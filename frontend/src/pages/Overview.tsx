@@ -1,12 +1,13 @@
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { useApi } from "../hooks";
-import { Card, Decision, Loading, ProbBar, Quality, Stat, ago, cls, eur, num, pct, romeTime, selLabel, spct, tooltipStyle } from "../ui";
+import { Card, Decision, Loading, ProbBar, Stat, ago, cls, eur, num, pct, romeTime, selLabel, spct, tooltipStyle } from "../ui";
 import { Link } from "react-router-dom";
 import TodayCard from "./TodayCard";
 import { sampleNote, smallSample } from "../lib/honesty";
 
 export default function Overview() {
   const { data, error, updated } = useApi<any>("overview", 60000);
+  const { data: hd } = useApi<any>("health_detail", 120000);
   if (!data) return <Loading error={error} />;
   const b = data.bankroll;
   const curve = [{ t: "start", bankroll: b.starting_bankroll }, ...data.pnl_curve.map((p: any) => ({ t: p.t?.slice(0, 10), bankroll: p.bankroll }))];
@@ -64,19 +65,19 @@ export default function Overview() {
       <div className="grid g2" style={{ marginTop: 12 }}>
         <Card title="Open virtual bets (best EV first)" right={<Link to="/slip">bet slip →</Link>}>
           {data.opportunities.length === 0 ? (
-            <div className="nobet-hero">NO BET — no sufficiently reliable value opportunity identified.<br /><span>That is a successful decision, not a failure.</span></div>
+            <div className="nobet-hero">No open bets right now{b.settled ? <> · {b.settled} settled → <Link to="/history">History</Link></> : null}.<br /><span>{hd?.components?.odds?.with_odds === 0 ? "No current bookmaker odds for upcoming matches yet, so no bet can be placed." : "No bet is a valid decision when no price is clearly too generous."}</span></div>
           ) : (
-            <table><thead><tr><th>Match</th><th>Selection</th><th className="num">Odds</th><th className="num">EV</th><th>Kickoff</th></tr></thead>
+            <table><thead><tr><th>Match</th><th>Selection</th><th className="num">Odds</th><th className="num">Stake</th><th className="num">Return</th><th className="num">EV</th><th>Kickoff</th></tr></thead>
               <tbody>{data.opportunities.map((o: any) => (
                 <tr key={o.id}><td className="match">{o.fixture.home} – {o.fixture.away}<small>{o.fixture.competition_name}</small></td>
-                  <td>{selLabel(o.market, o.selection, o.line)}</td><td className="num">{num(o.price)}</td><td className="num pos">{spct(o.ev)}</td><td className="mono">{romeTime(o.fixture.kickoff_utc)}</td></tr>))}</tbody></table>
+                  <td>{selLabel(o.market, o.selection, o.line)}</td><td className="num">{num(o.price)}</td><td className="num">{eur(o.stake)}</td><td className="num">{eur(o.potential_return)}</td><td className="num pos">{spct(o.ev)}</td><td className="mono">{romeTime(o.fixture.kickoff_utc)}</td></tr>))}</tbody></table>
           )}
         </Card>
         <Card title={`Upcoming (${data.upcoming_count} in 7 days · ${data.predicted_count} predicted)`} right={<Link to="/upcoming">all →</Link>}>
-          <div className="tablewrap"><table><thead><tr><th>Kickoff (Rome)</th><th>Match</th><th>1X2 model</th><th>Quality</th><th>Status</th></tr></thead>
+          <div className="tablewrap"><table><thead><tr><th>Kickoff (Rome)</th><th>Match</th><th>1X2 model</th><th>Status</th></tr></thead>
             <tbody>{data.upcoming.map((f: any) => (
               <tr key={f.id}><td className="mono">{romeTime(f.kickoff_utc)}</td><td className="match">{f.home} – {f.away}<small>{f.competition_name}</small></td>
-                <td><ProbBar p={f.probs_1x2} /></td><td><Quality q={f.data_quality} /></td><td><Decision d={f.decision} /></td></tr>))}</tbody></table></div>
+                <td><ProbBar p={f.probs_1x2} /></td><td title={`data quality ${f.data_quality ?? "—"}`}><Decision d={f.decision} /></td></tr>))}</tbody></table></div>
         </Card>
       </div>
     </>

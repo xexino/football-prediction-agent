@@ -52,7 +52,7 @@ export default function Insights() {
           const b = i.engine_b;
           return (
             <Link key={i.id} to={`/insights/${i.id}`} className="card ai-card">
-              <div className="ai-head"><span className="muted" style={{ fontSize: 11 }}>{i.competition_name} · {romeTime(i.kickoff_utc)}</span><span className="chips"><LiveBadge l={i.phase === "live" ? i.live : null} /><Coverage s={i.coverage_status} /></span></div>
+              <div className="ai-head"><span className="muted" style={{ fontSize: 11 }}>{i.competition_name} · {romeTime(i.kickoff_utc)}</span><span className="chips"><LiveBadge l={i.phase === "live" ? i.live : null} /><Coverage s={i.coverage_status} />{i.cross_league_low_confidence && <span className="pill warn" title="Engine B: cross-league rating, low confidence">low conf.</span>}</span></div>
               <div className="ai-teams">{i.home} <span className="muted">vs</span> {i.away}{i.score ? <span className="mono" style={{ marginLeft: 8 }}>{i.score}</span> : i.phase === "awaiting_result" ? <span className="warn" style={{ marginLeft: 8, fontSize: 11 }}>awaiting result</span> : null}</div>
               {b ? (
                 <>
