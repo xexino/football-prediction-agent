@@ -157,26 +157,13 @@ def compute(now: datetime | None = None, include_db_check: bool = True) -> dict:
             Fixture.competition_id.in_(live_comp_ids), Fixture.kickoff_utc <= now,
             Fixture.kickoff_utc > now - timedelta(hours=2, minutes=30),
             Fixture.status.notin_(("postponed", "cancelled", "abandoned")))) > 0
-        # snapshots are stored only when a score/status changes, so a goalless spell writes none: the feed is fresh
-        # when either a snapshot OR a successful poll of the live provider is recent (council cycle 2026-11-28 12:50:
-        # DEGRADED 18 min into three 0-0 ENG2 games although football-data.org answered at 12:42)
-        # the live POLLER's own answer (skeptic: the provider's last_success_at is also refreshed by the 3-hourly
-        # results fetch and would mask a broken poller): newest live run whose eb_live step got a reply
-        last_poll = None
-        for r in s.scalars(select(JobRun).where(JobRun.job == "live", JobRun.finished_at.is_not(None))
-                           .order_by(JobRun.id.desc()).limit(20)):
-            prov = (((r.summary or {}).get("results") or {}).get("eb_live") or {}).get("providers") or {}
-            if isinstance(prov.get("football_data_org"), dict):
-                last_poll = r.finished_at
-                break
-        live_fresh = any(t is not None and now - t < timedelta(minutes=45) for t in (newest_live, last_poll))
+        live_fresh = newest_live is not None and now - newest_live < timedelta(minutes=45)
         comps["live"] = {"state": "UNKNOWN" if newest_live is None else
                          ("HEALTHY" if live_fresh or not in_play else "DEGRADED"), "idle": not live_fresh and not in_play,
                          "last": iso(newest_live),
                          "detail": "no live snapshot yet" if newest_live is None else
                          ("idle: no covered match in play" if not live_fresh and not in_play else
-                          "newest live snapshot; free-plan feeds are DELAYED, never real-time"),
-                         "last_poll": iso(last_poll)}
+                          "newest live snapshot; free-plan feeds are DELAYED, never real-time")}
         providers = {}
         for k, d in ds.items():
             if not d.configured:
